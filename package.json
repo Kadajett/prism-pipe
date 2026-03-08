@@ -1,0 +1,19 @@
+{
+  "name": "prism-pipe",
+  "version": "0.1.0",
+  "description": "AI proxy with configurable rate limiting, fallbacks, logging, and multi-IP egress",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "check": "biome check .",
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "keywords": ["ai", "proxy", "rate-limiting", "fallback", "multi-ip"],
+  "license": "MIT"
+}
