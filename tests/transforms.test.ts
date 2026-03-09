@@ -248,3 +248,102 @@ describe('Cross-provider transform', () => {
 		expect(usage.prompt_tokens).toBe(10);
 	});
 });
+
+import { GeminiTransformer } from '../src/proxy/transforms/gemini.js';
+import { OllamaTransformer } from '../src/proxy/transforms/ollama.js';
+
+describe('Cross-provider transforms with Gemini and Ollama', () => {
+	const openai = new OpenAITransformer();
+	const anthropic = new AnthropicTransformer();
+	const gemini = new GeminiTransformer();
+	const ollama = new OllamaTransformer();
+
+	it('converts OpenAI request → canonical → Gemini format', () => {
+		const openaiReq = {
+			model: 'gpt-4o',
+			messages: [
+				{ role: 'system', content: 'Be concise.' },
+				{ role: 'user', content: 'Hello' },
+			],
+			max_tokens: 100,
+		};
+
+		const canonical = openai.toCanonical(openaiReq);
+		const geminiReq = gemini.fromCanonical(canonical) as Record<string, unknown>;
+
+		expect((geminiReq.systemInstruction as Record<string, unknown>).parts).toEqual([
+			{ text: 'Be concise.' },
+		]);
+		const contents = geminiReq.contents as Array<Record<string, unknown>>;
+		expect(contents).toHaveLength(1);
+		expect(contents[0].role).toBe('user');
+		const config = geminiReq.generationConfig as Record<string, unknown>;
+		expect(config.maxOutputTokens).toBe(100);
+	});
+
+	it('converts Gemini response → canonical → OpenAI format', () => {
+		const geminiRes = {
+			candidates: [
+				{
+					content: { role: 'model', parts: [{ text: 'Hello!' }] },
+					finishReason: 'STOP',
+				},
+			],
+			usageMetadata: {
+				promptTokenCount: 10,
+				candidatesTokenCount: 5,
+				totalTokenCount: 15,
+			},
+		};
+
+		const canonical = gemini.responseToCanonical(geminiRes);
+		const openaiRes = openai.responseFromCanonical(canonical) as Record<string, unknown>;
+
+		expect(openaiRes.object).toBe('chat.completion');
+		const choices = openaiRes.choices as Array<Record<string, unknown>>;
+		expect(choices[0].finish_reason).toBe('stop');
+		const message = choices[0].message as Record<string, unknown>;
+		expect(message.content).toBe('Hello!');
+	});
+
+	it('converts Anthropic request → canonical → Ollama format', () => {
+		const anthropicReq = {
+			model: 'claude-sonnet-4-20250514',
+			system: 'Be helpful.',
+			messages: [{ role: 'user', content: 'Hello' }],
+			max_tokens: 1024,
+			temperature: 0.7,
+		};
+
+		const canonical = anthropic.toCanonical(anthropicReq);
+		const ollamaReq = ollama.fromCanonical(canonical) as Record<string, unknown>;
+
+		const messages = ollamaReq.messages as Array<Record<string, unknown>>;
+		expect(messages[0]).toEqual({ role: 'system', content: 'Be helpful.' });
+		expect(messages[1]).toEqual({ role: 'user', content: 'Hello' });
+		const options = ollamaReq.options as Record<string, unknown>;
+		expect(options.num_predict).toBe(1024);
+		expect(options.temperature).toBe(0.7);
+	});
+
+	it('converts Ollama response → canonical → Anthropic format', () => {
+		const ollamaRes = {
+			model: 'llama2',
+			message: { role: 'assistant', content: 'Hello!' },
+			done: true,
+			prompt_eval_count: 10,
+			eval_count: 5,
+		};
+
+		const canonical = ollama.responseToCanonical(ollamaRes);
+		const anthropicRes = anthropic.responseFromCanonical(canonical) as Record<string, unknown>;
+
+		expect(anthropicRes.type).toBe('message');
+		const content = anthropicRes.content as Array<Record<string, unknown>>;
+		expect(content[0]).toEqual({ type: 'text', text: 'Hello!' });
+		expect(anthropicRes.stop_reason).toBe('end_turn');
+		const usage = anthropicRes.usage as Record<string, number>;
+		expect(usage.input_tokens).toBe(10);
+		expect(usage.output_tokens).toBe(5);
+	});
+});
