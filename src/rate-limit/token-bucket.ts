@@ -20,6 +20,12 @@ export class TokenBucket {
   private store: Store;
 
   constructor(config: TokenBucketConfig) {
+    if (config.capacity <= 0) {
+      throw new Error(`TokenBucket capacity must be positive, got ${config.capacity}`);
+    }
+    if (config.refillRate <= 0) {
+      throw new Error(`TokenBucket refillRate must be positive, got ${config.refillRate}`);
+    }
     this.capacity = config.capacity;
     this.refillRate = config.refillRate;
     this.store = config.store;
