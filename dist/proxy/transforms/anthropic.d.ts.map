@@ -1,0 +1,1 @@
+{"version":3,"file":"anthropic.d.ts","sourceRoot":"","sources":["../../../src/proxy/transforms/anthropic.ts"],"names":[],"mappings":"AAAA;;GAEG;AAEH,OAAO,KAAK,EAAE,gBAAgB,EAAE,iBAAiB,EAAE,MAAM,OAAO,CAAA;AAEhE,wBAAgB,oBAAoB,CAAC,QAAQ,EAAE,gBAAgB,GAAG,OAAO,CAExE;AAED,wBAAgB,sBAAsB,CAAC,SAAS,EAAE,OAAO,GAAG,iBAAiB,CAE5E"}

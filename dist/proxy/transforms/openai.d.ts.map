@@ -1,0 +1,1 @@
+{"version":3,"file":"openai.d.ts","sourceRoot":"","sources":["../../../src/proxy/transforms/openai.ts"],"names":[],"mappings":"AAAA;;GAEG;AAEH,OAAO,KAAK,EAAE,gBAAgB,EAAE,iBAAiB,EAAE,MAAM,OAAO,CAAA;AAEhE,wBAAgB,iBAAiB,CAAC,QAAQ,EAAE,gBAAgB,GAAG,OAAO,CAErE;AAED,wBAAgB,mBAAmB,CAAC,SAAS,EAAE,OAAO,GAAG,iBAAiB,CAEzE"}

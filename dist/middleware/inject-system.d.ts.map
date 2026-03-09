@@ -1,0 +1,1 @@
+{"version":3,"file":"inject-system.d.ts","sourceRoot":"","sources":["../../src/middleware/inject-system.ts"],"names":[],"mappings":"AAAA;;GAEG;AAEH,OAAO,KAAK,EAAE,gBAAgB,EAAE,eAAe,EAAE,MAAM,OAAO,CAAA;AAE9D,wBAAsB,sBAAsB,CAC1C,QAAQ,EAAE,gBAAgB,EAC1B,QAAQ,EAAE,eAAe,GACxB,OAAO,CAAC,gBAAgB,CAAC,CAE3B"}

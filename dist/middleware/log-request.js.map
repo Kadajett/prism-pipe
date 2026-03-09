@@ -1,0 +1,1 @@
+{"version":3,"file":"log-request.js","sourceRoot":"","sources":["../../src/middleware/log-request.ts"],"names":[],"mappings":"AAAA;;GAEG;AAIH,MAAM,CAAC,KAAK,UAAU,oBAAoB,CACxC,QAA0B,EAC1B,QAAyB;IAEzB,MAAM,IAAI,KAAK,CAAC,iBAAiB,CAAC,CAAA;AACpC,CAAC;AAED,MAAM,CAAC,KAAK,UAAU,qBAAqB,CACzC,SAA4B,EAC5B,QAAyB;IAEzB,MAAM,IAAI,KAAK,CAAC,iBAAiB,CAAC,CAAA;AACpC,CAAC"}

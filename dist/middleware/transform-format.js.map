@@ -1,0 +1,1 @@
+{"version":3,"file":"transform-format.js","sourceRoot":"","sources":["../../src/middleware/transform-format.ts"],"names":[],"mappings":"AAAA;;GAEG;AAIH,MAAM,CAAC,KAAK,UAAU,yBAAyB,CAC7C,QAA0B,EAC1B,QAAyB;IAEzB,MAAM,IAAI,KAAK,CAAC,iBAAiB,CAAC,CAAA;AACpC,CAAC;AAED,MAAM,CAAC,KAAK,UAAU,2BAA2B,CAC/C,SAA4B,EAC5B,QAAyB;IAEzB,MAAM,IAAI,KAAK,CAAC,iBAAiB,CAAC,CAAA;AACpC,CAAC"}

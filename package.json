@@ -1,19 +1,51 @@
 {
   "name": "prism-pipe",
   "version": "0.1.0",
-  "description": "AI proxy with configurable rate limiting, fallbacks, logging, and multi-IP egress",
+  "description": "Modular proxy framework for LLM APIs",
   "type": "module",
   "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./core": "./dist/core/index.js",
+    "./server": "./dist/server/index.js",
+    "./proxy": "./dist/proxy/index.js"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
-    "check": "biome check .",
-    "format": "biome format --write .",
-    "lint": "biome lint .",
+    "start": "tsx src/index.ts",
+    "check": "biome check src/ --write",
+    "lint": "biome lint src/",
+    "format": "biome format src/ --write",
     "test": "vitest",
     "test:run": "vitest run"
   },
-  "keywords": ["ai", "proxy", "rate-limiting", "fallback", "multi-ip"],
-  "license": "MIT"
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "llm",
+    "proxy",
+    "api",
+    "openai",
+    "anthropic"
+  ],
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.6",
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.6",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.1.0"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "pino": "^8.17.2",
+    "pino-pretty": "^10.3.1",
+    "ulid": "^2.3.0"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^9.2.2"
+  }
 }

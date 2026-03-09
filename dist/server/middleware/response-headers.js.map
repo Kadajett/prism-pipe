@@ -1,0 +1,1 @@
+{"version":3,"file":"response-headers.js","sourceRoot":"","sources":["../../../src/server/middleware/response-headers.ts"],"names":[],"mappings":"AAEA;;GAEG;AAEH,MAAM,UAAU,yBAAyB,CAAC,IAAa,EAAE,GAAa,EAAE,IAAkB;IACxF,GAAG,CAAC,SAAS,CAAC,iBAAiB,EAAE,OAAO,CAAC,CAAA;IACzC,GAAG,CAAC,SAAS,CAAC,cAAc,EAAE,YAAY,CAAC,CAAA;IAC3C,IAAI,EAAE,CAAA;AACR,CAAC"}
