@@ -73,7 +73,7 @@ async function loadPlugin(ref: PluginReference, basePath: string): Promise<Plugi
     return validatePlugin(result, ref.source);
   }
 
-  return validatePlugin(mod, ref.source);
+  return validatePlugin(exported, ref.source);
 }
 
 /**
@@ -91,12 +91,13 @@ export async function loadPlugins(
     if (ref.enabled === false) continue;
 
     const plugin = await loadPlugin(ref, basePath);
-    reg.register(plugin);
-
-    // Call onInit lifecycle hook
+    // Call onInit before register so a failed init doesn't leave
+    // a half-registered plugin in the registry with no rollback path.
     if (plugin.onInit) {
       await plugin.onInit();
     }
+
+    reg.register(plugin);
   }
 
   return reg;

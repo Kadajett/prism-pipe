@@ -25,7 +25,7 @@ export async function loadMiddlewareFromDir(dirPath: string): Promise<NamedMiddl
 
   const files = readdirSync(absDir).filter((f) => {
     const ext = extname(f);
-    return VALID_EXTENSIONS.has(ext) && !f.endsWith('.test.ts') && !f.endsWith('.spec.ts');
+    return VALID_EXTENSIONS.has(ext) && !/\.(test|spec)\.[cm]?[jt]sx?$/.test(f);
   });
 
   const middlewares: NamedMiddleware[] = [];
@@ -79,8 +79,9 @@ export function watchMiddlewareDir(
       try {
         const middlewares = await loadMiddlewareFromDir(absDir);
         await onReload(middlewares);
-      } catch (_err) {
-        // Swallow load errors during hot-reload — keep existing middleware
+      } catch (err) {
+        // Keep existing middleware on reload failure, but warn so users can debug
+        console.warn(`[custom-loader] hot-reload failed for ${absDir}:`, err);
       }
     }, debounceMs);
   });
