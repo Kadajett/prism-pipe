@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
-import type { ResolvedConfig } from '../core/types.js';
-import { DEFAULT_CONFIG } from './defaults.js';
+import type { ResolvedConfig } from '../core/types';
+import { DEFAULT_CONFIG } from './defaults';
 
 /**
  * Interpolate ${VAR} references with environment variables.

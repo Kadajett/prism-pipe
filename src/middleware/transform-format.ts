@@ -1,5 +1,5 @@
-import type { Middleware } from '../core/pipeline.js';
-import type { TransformRegistry } from '../proxy/transform-registry.js';
+import type { Middleware } from '../core/pipeline';
+import type { TransformRegistry } from '../proxy/transform-registry';
 
 /**
  * Auto-detect client format and transform to/from canonical.

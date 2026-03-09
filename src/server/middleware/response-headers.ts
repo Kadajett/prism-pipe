@@ -3,7 +3,7 @@
  * Adds X-Prism-* headers for observability
  */
 import type { Request, Response, NextFunction } from 'express';
-import type { PrismConfig } from '../../types/index.js';
+import type { PrismConfig } from '../../types/index';
 
 // Read version from package.json at build time
 const VERSION = '0.1.0';

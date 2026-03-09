@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { TokenBucket } from './token-bucket.js';
-import { MemoryStore } from '../store/memory.js';
+import { TokenBucket } from './token-bucket';
+import { MemoryStore } from '../store/memory';
 
 describe('TokenBucket', () => {
   let store: MemoryStore;

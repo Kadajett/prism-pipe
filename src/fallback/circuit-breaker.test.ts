@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { CircuitBreaker, CircuitBreakerRegistry } from './circuit-breaker.js';
+import { CircuitBreaker, CircuitBreakerRegistry } from './circuit-breaker';
 
 describe('CircuitBreaker', () => {
   let cb: CircuitBreaker;

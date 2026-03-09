@@ -1,5 +1,5 @@
-import { PipelineError } from '../core/types.js';
-import type { TimeoutBudget } from '../core/timeout.js';
+import { PipelineError } from '../core/types';
+import type { TimeoutBudget } from '../core/timeout';
 
 export interface RetryOptions {
 	/** Maximum number of retry attempts (not counting the initial try). */

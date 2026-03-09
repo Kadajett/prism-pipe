@@ -5,7 +5,7 @@
  * and returns the appropriate adapter.
  */
 
-import type { RuntimeCapabilities, RuntimeName } from './capabilities.js';
+import type { RuntimeCapabilities, RuntimeName } from './capabilities';
 
 /**
  * Detect the current runtime environment

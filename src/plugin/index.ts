@@ -1,5 +1,5 @@
-export { PluginRegistry, NamingConflictError } from './registry.js';
-export { loadPlugins } from './loader.js';
+export { PluginRegistry, NamingConflictError } from './registry';
+export { loadPlugins } from './loader';
 export type {
   Plugin,
   PluginReference,
@@ -9,7 +9,7 @@ export type {
   LogSink,
   MetricsExporter,
   Composer,
-} from './types.js';
-export { defineMiddleware } from '../middleware/define.js';
-export type { MiddlewareHandler, DefineMiddlewareOptions } from '../middleware/define.js';
-export { loadMiddlewareFromDir, watchMiddlewareDir } from '../middleware/custom-loader.js';
+} from './types';
+export { defineMiddleware } from '../middleware/define';
+export type { MiddlewareHandler, DefineMiddlewareOptions } from '../middleware/define';
+export { loadMiddlewareFromDir, watchMiddlewareDir } from '../middleware/custom-loader';

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import express from 'express';
-import { StatsTracker, setupAdminRoutes } from './routes.js';
-import type { ResolvedConfig } from '../core/types.js';
+import { StatsTracker, setupAdminRoutes } from './routes';
+import type { ResolvedConfig } from '../core/types';
 
 // Minimal test config
 const TEST_CONFIG: ResolvedConfig = {

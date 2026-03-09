@@ -5,9 +5,9 @@
  * according to its strategy (chain, parallel, race, etc.).
  */
 
-import type { PipelineContext } from './context.js';
-import type { TimeoutBudget } from './timeout.js';
-import type { CanonicalRequest, CanonicalResponse } from './types.js';
+import type { PipelineContext } from './context';
+import type { TimeoutBudget } from './timeout';
+import type { CanonicalRequest, CanonicalResponse } from './types';
 
 // ─── Step Configuration ───
 

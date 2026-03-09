@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import Database from 'better-sqlite3';
-import type { LogFilter, RateLimitEntry, RequestLogEntry, Store } from './interface.js';
+import type { LogFilter, RateLimitEntry, RequestLogEntry, Store } from './interface';
 
 export class SQLiteStore implements Store {
   private db?: Database.Database;
@@ -134,5 +134,17 @@ export class SQLiteStore implements Store {
     }
     query += ' ORDER BY timestamp DESC';
     return this.db.prepare(query).all(...params) as RequestLogEntry[];
+  }
+
+  async cleanupExpiredEntries(): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    const now = Date.now();
+    this.db.prepare('DELETE FROM rate_limit_state WHERE reset_at < ?').run(now);
+  }
+
+  async pruneOldLogs(maxAgeDays: number): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+    this.db.prepare('DELETE FROM request_log WHERE timestamp < ?').run(cutoff);
   }
 }

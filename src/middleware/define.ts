@@ -9,8 +9,8 @@
  *   });
  */
 
-import type { PipelineContext } from '../core/context.js';
-import type { NamedMiddleware } from '../plugin/types.js';
+import type { PipelineContext } from '../core/context';
+import type { NamedMiddleware } from '../plugin/types';
 
 export type MiddlewareHandler = (ctx: PipelineContext, next: () => Promise<void>) => Promise<void>;
 

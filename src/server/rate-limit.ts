@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import type { TokenBucket } from '../rate-limit/token-bucket.js';
+import type { TokenBucket } from '../rate-limit/token-bucket';
 
 /**
  * Express middleware that enforces rate limiting via a TokenBucket.

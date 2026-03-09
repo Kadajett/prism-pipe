@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { TenantManager, TenantCostTracker } from './tenant.js';
-import type { TenantConfig } from './tenant.js';
+import { TenantManager, TenantCostTracker } from './tenant';
+import type { TenantConfig } from './tenant';
 
 const TENANT_A: TenantConfig = {
   id: 'tenant-a',

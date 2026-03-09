@@ -1,4 +1,4 @@
-import type { CanonicalRequest, CanonicalResponse } from "../core/types.js";
+import type { CanonicalRequest, CanonicalResponse } from "../core/types";
 
 /** Transforms between provider-specific and canonical formats. */
 export interface Transform {

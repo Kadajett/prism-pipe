@@ -1,14 +1,14 @@
-import type { TimeoutBudget } from '../core/timeout.js';
-import type { ProviderConfig, ScopedLogger } from '../core/types.js';
-import { PipelineError } from '../core/types.js';
+import type { TimeoutBudget } from '../core/timeout';
+import type { ProviderConfig, ScopedLogger } from '../core/types';
+import { PipelineError } from '../core/types';
 import {
   callProvider,
   callProviderStream,
   type ProviderCallResult,
   type ProviderStreamResult,
-} from '../proxy/provider.js';
-import type { ProviderTransformer } from '../proxy/transform-registry.js';
-import type { CircuitBreakerRegistry } from './circuit-breaker.js';
+} from '../proxy/provider';
+import type { ProviderTransformer } from '../proxy/transform-registry';
+import type { CircuitBreakerRegistry } from './circuit-breaker';
 
 export interface FallbackChainOptions {
   providers: Array<{
@@ -101,7 +101,7 @@ export async function executeFallbackChain(
   // All providers exhausted
   const lastError = errors[errors.length - 1]?.error;
   throw new PipelineError(
-    `All providers failed. Last error: ${lastError?.message ?? 'unknown'}`,
+    `All ${opts.providers.length} providers failed`,
     lastError?.code ?? 'server_error',
     'fallback_chain',
     lastError?.statusCode ?? 502,

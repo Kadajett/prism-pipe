@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { loadPlugins } from './loader.js';
-import { PluginRegistry } from './registry.js';
+import { loadPlugins } from './loader';
+import { PluginRegistry } from './registry';
 
 const TMP_DIR = resolve(import.meta.dirname ?? '.', '__test_plugins__');
 

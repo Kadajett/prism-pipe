@@ -2,7 +2,7 @@
  * Health check endpoints
  */
 import type { Request, Response } from 'express';
-import type { PrismConfig, HealthResponse, ReadyResponse } from '../types/index.js';
+import type { PrismConfig, HealthResponse, ReadyResponse } from '../types/index';
 
 const VERSION = '0.1.0';
 const START_TIME = Date.now();

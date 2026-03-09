@@ -3,11 +3,11 @@
  */
 
 import type { Express, Request, Response } from 'express';
-import type { TenantManager } from '../auth/tenant.js';
-import { requireAdmin } from '../auth/middleware.js';
-import type { CircuitBreakerRegistry } from '../fallback/circuit-breaker.js';
-import type { PluginRegistry } from '../plugin/registry.js';
-import type { ResolvedConfig } from '../core/types.js';
+import type { TenantManager } from '../auth/tenant';
+import { requireAdmin } from '../auth/middleware';
+import type { CircuitBreakerRegistry } from '../fallback/circuit-breaker';
+import type { PluginRegistry } from '../plugin/registry';
+import type { ResolvedConfig } from '../core/types';
 
 // ─── Stats Tracker ───
 

@@ -1,4 +1,4 @@
-import type { ResolvedConfig } from '../core/types.js';
+import type { ResolvedConfig } from '../core/types';
 
 export const DEFAULT_CONFIG: ResolvedConfig = {
   port: 3000,

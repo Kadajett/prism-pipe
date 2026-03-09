@@ -36,6 +36,28 @@ export interface ThinkingBlock {
 
 export type ContentBlock = TextBlock | ImageBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock;
 
+// ─── Content Type Guards ───
+
+export function isTextContent(block: ContentBlock): block is TextBlock {
+  return block.type === 'text';
+}
+
+export function isImageContent(block: ContentBlock): block is ImageBlock {
+  return block.type === 'image';
+}
+
+export function isToolUseContent(block: ContentBlock): block is ToolUseBlock {
+  return block.type === 'tool_use';
+}
+
+export function isToolResultContent(block: ContentBlock): block is ToolResultBlock {
+  return block.type === 'tool_result';
+}
+
+export function isThinkingContent(block: ContentBlock): block is ThinkingBlock {
+  return block.type === 'thinking';
+}
+
 // ─── Messages ───
 
 export interface CanonicalMessage {

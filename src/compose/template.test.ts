@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { StepResult } from '../core/composer.js';
-import type { CanonicalRequest } from '../core/types.js';
-import { resolveTemplate, type TemplateContext } from './template.js';
+import type { StepResult } from '../core/composer';
+import type { CanonicalRequest } from '../core/types';
+import { resolveTemplate, type TemplateContext } from './template';
 
 function makeRequest(overrides?: Partial<CanonicalRequest>): CanonicalRequest {
   return {

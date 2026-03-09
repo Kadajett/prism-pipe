@@ -1,5 +1,5 @@
-import type { PipelineContext } from './context.js';
-import { PipelineError } from './types.js';
+import type { PipelineContext } from './context';
+import { PipelineError } from './types';
 
 export type Middleware = (ctx: PipelineContext, next: () => Promise<void>) => Promise<void>;
 

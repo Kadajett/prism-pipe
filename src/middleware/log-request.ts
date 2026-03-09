@@ -1,4 +1,4 @@
-import type { Middleware } from '../core/pipeline.js';
+import type { Middleware } from '../core/pipeline';
 
 /**
  * Log request/response summary: model, tokens, latency, provider, status.

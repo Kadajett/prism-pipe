@@ -4,8 +4,8 @@ import type {
   ContentBlock,
   ToolDefinition,
   ScopedLogger,
-} from '../core/types.js';
-import { PipelineError } from '../core/types.js';
+} from '../core/types';
+import { PipelineError } from '../core/types';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
