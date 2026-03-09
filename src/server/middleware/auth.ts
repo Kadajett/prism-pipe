@@ -2,9 +2,20 @@
  * API key authentication middleware
  */
 
+import crypto from "node:crypto"
 import type { Request, Response, NextFunction } from "express"
 import type { AuthConfig } from "../../config/schema.js"
 import { AuthError } from "../../core/errors.js"
+
+/** Extend Express Request with auth context */
+declare global {
+  namespace Express {
+    interface Request {
+      apiKey?: string
+      tenantId?: string
+    }
+  }
+}
 
 export interface AuthMiddlewareOptions {
   config: AuthConfig
@@ -15,19 +26,29 @@ export interface AuthMiddlewareOptions {
  * Checks Authorization: Bearer <key> or x-api-key: <key>
  */
 export function extractApiKey(req: Request): string | null {
-  // Check Authorization header (Bearer token)
   const authHeader = req.headers.authorization
   if (authHeader?.startsWith("Bearer ")) {
     return authHeader.slice(7)
   }
 
-  // Check x-api-key header
   const apiKeyHeader = req.headers["x-api-key"]
   if (typeof apiKeyHeader === "string") {
     return apiKeyHeader
   }
 
   return null
+}
+
+/**
+ * Constant-time string comparison to prevent timing attacks
+ */
+function timingSafeCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    // Still do a comparison to avoid leaking length info via timing
+    crypto.timingSafeEqual(Buffer.from(a), Buffer.from(a))
+    return false
+  }
+  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b))
 }
 
 /**
@@ -56,7 +77,7 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions) {
       })
     }
 
-    if (providedKey !== config.apiKey) {
+    if (!timingSafeCompare(providedKey, config.apiKey)) {
       const error = new AuthError("Invalid API key")
       return res.status(401).json({
         error: {
@@ -66,9 +87,9 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions) {
       })
     }
 
-    // Attach API key and tenant context (for rate limiting and future multi-tenant support)
-    ;(req as any).apiKey = providedKey
-    ;(req as any).tenantId = "default"
+    // Attach API key and tenant context
+    req.apiKey = providedKey
+    req.tenantId = "default"
 
     next()
   }

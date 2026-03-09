@@ -49,10 +49,13 @@ describe("extractApiKey", () => {
 })
 
 describe("createAuthMiddleware", () => {
+  // Use a key that's >= 32 chars to satisfy validation
+  const validKey = "a]R7$mK9#pL2&xW5^nQ8@dF4*hJ6!tY3"
+
   it("passes through when auth is disabled", () => {
     const config: AuthConfig = {
       enabled: false,
-      apiKey: "test-key",
+      apiKey: validKey,
     }
 
     const middleware = createAuthMiddleware({ config })
@@ -85,7 +88,7 @@ describe("createAuthMiddleware", () => {
   it("rejects request with missing API key", () => {
     const config: AuthConfig = {
       enabled: true,
-      apiKey: "secret-key",
+      apiKey: validKey,
     }
 
     const middleware = createAuthMiddleware({ config })
@@ -113,13 +116,13 @@ describe("createAuthMiddleware", () => {
   it("rejects request with invalid API key", () => {
     const config: AuthConfig = {
       enabled: true,
-      apiKey: "secret-key",
+      apiKey: validKey,
     }
 
     const middleware = createAuthMiddleware({ config })
     const req = {
       headers: {
-        authorization: "Bearer wrong-key",
+        authorization: "Bearer wrong-key-that-is-long-enough!!",
       },
     } as Request
 
@@ -143,15 +146,15 @@ describe("createAuthMiddleware", () => {
   it("passes through with valid API key and attaches tenant context", () => {
     const config: AuthConfig = {
       enabled: true,
-      apiKey: "secret-key",
+      apiKey: validKey,
     }
 
     const middleware = createAuthMiddleware({ config })
     const req = {
       headers: {
-        authorization: "Bearer secret-key",
+        authorization: `Bearer ${validKey}`,
       },
-    } as Request & { tenantId?: string }
+    } as Request
 
     const res = {} as Response
     const next = vi.fn()
@@ -160,19 +163,20 @@ describe("createAuthMiddleware", () => {
 
     expect(next).toHaveBeenCalledOnce()
     expect(next).toHaveBeenCalledWith()
+    expect(req.apiKey).toBe(validKey)
     expect(req.tenantId).toBe("default")
   })
 
   it("accepts API key from x-api-key header", () => {
     const config: AuthConfig = {
       enabled: true,
-      apiKey: "secret-key",
+      apiKey: validKey,
     }
 
     const middleware = createAuthMiddleware({ config })
     const req = {
       headers: {
-        "x-api-key": "secret-key",
+        "x-api-key": validKey,
       },
     } as Request
 

@@ -5,64 +5,43 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
 import type { Request, Response, NextFunction } from "express"
 import { createRateLimitMiddleware, getRateLimitScope } from "./rate-limit.js"
-import type { Store } from "../../store/interface.js"
+import type { Store, RateLimitEntry, RequestLogEntry, LogFilter } from "../../store/interface.js"
 import type { RateLimitConfig } from "../../config/schema.js"
 
-// Mock store
 class MockStore implements Store {
-  private data = new Map<string, any>()
+  private data = new Map<string, RateLimitEntry>()
 
-  async set(key: string, value: unknown): Promise<void> {
-    this.data.set(key, value)
-  }
+  async init(): Promise<void> {}
+  async close(): Promise<void> {}
+  async migrate(): Promise<void> {}
+  async logRequest(_entry: RequestLogEntry): Promise<void> {}
+  async queryLogs(_filter: LogFilter): Promise<RequestLogEntry[]> { return [] }
 
-  async get(key: string): Promise<unknown> {
+  async rateLimitGet(key: string): Promise<RateLimitEntry | null> {
     return this.data.get(key) ?? null
   }
 
-  async delete(key: string): Promise<void> {
-    this.data.delete(key)
-  }
-
-  async exists(key: string): Promise<boolean> {
-    return this.data.has(key)
-  }
-
-  async clear(): Promise<void> {
-    this.data.clear()
-  }
-
-  async list(): Promise<any[]> {
-    return []
-  }
-
-  reset() {
-    this.data.clear()
+  async rateLimitSet(key: string, entry: RateLimitEntry): Promise<void> {
+    this.data.set(key, entry)
   }
 }
 
 describe("getRateLimitScope", () => {
   it("uses api-key scope when apiKey is present", () => {
-    const req = {
-      apiKey: "test-key-123",
-    } as Request & { apiKey?: string }
+    const req = { apiKey: "test-key-123" } as Request
 
     expect(getRateLimitScope(req)).toBe("api-key:test-key-123")
   })
 
   it("falls back to IP scope when no apiKey", () => {
-    const req = {
-      ip: "192.168.1.100",
-    } as Request
+    const req = { ip: "192.168.1.100" } as Request
 
     expect(getRateLimitScope(req)).toBe("ip:192.168.1.100")
   })
 
   it("uses socket remoteAddress when ip is not available", () => {
     const req = {
-      socket: {
-        remoteAddress: "10.0.0.5",
-      },
+      socket: { remoteAddress: "10.0.0.5" },
     } as Request
 
     expect(getRateLimitScope(req)).toBe("ip:10.0.0.5")
@@ -84,9 +63,7 @@ describe("createRateLimitMiddleware", () => {
   })
 
   it("passes through when rate limiting is disabled", async () => {
-    const config: RateLimitConfig = {
-      enabled: false,
-    }
+    const config: RateLimitConfig = { enabled: false, capacity: 60, refillRate: 1 }
 
     const middleware = createRateLimitMiddleware({ config, store })
     const req = {} as Request
@@ -100,16 +77,10 @@ describe("createRateLimitMiddleware", () => {
   })
 
   it("adds rate limit headers on successful request", async () => {
-    const config: RateLimitConfig = {
-      enabled: true,
-      capacity: 10,
-      refillRate: 1,
-    }
+    const config: RateLimitConfig = { enabled: true, capacity: 10, refillRate: 1 }
 
     const middleware = createRateLimitMiddleware({ config, store })
-    const req = {
-      ip: "192.168.1.1",
-    } as Request
+    const req = { ip: "192.168.1.1" } as Request
 
     const setHeader = vi.fn()
     const res = { setHeader } as unknown as Response
@@ -124,15 +95,10 @@ describe("createRateLimitMiddleware", () => {
   })
 
   it("returns 429 when rate limit is exceeded", async () => {
-    const config: RateLimitConfig = {
-      enabled: true,
-      capacity: 3,
-      refillRate: 1,
-    }
+    const config: RateLimitConfig = { enabled: true, capacity: 3, refillRate: 1 }
 
     const middleware = createRateLimitMiddleware({ config, store })
 
-    // Make 3 successful requests (exhaust capacity)
     for (let i = 0; i < 3; i++) {
       const req = { ip: "192.168.1.1" } as Request
       const setHeader = vi.fn()
@@ -143,7 +109,6 @@ describe("createRateLimitMiddleware", () => {
       expect(next).toHaveBeenCalled()
     }
 
-    // 4th request should fail
     const req = { ip: "192.168.1.1" } as Request
     const setHeader = vi.fn()
     const json = vi.fn()
@@ -166,15 +131,10 @@ describe("createRateLimitMiddleware", () => {
   })
 
   it("tracks rate limits separately per scope", async () => {
-    const config: RateLimitConfig = {
-      enabled: true,
-      capacity: 2,
-      refillRate: 1,
-    }
+    const config: RateLimitConfig = { enabled: true, capacity: 2, refillRate: 1 }
 
     const middleware = createRateLimitMiddleware({ config, store })
 
-    // Exhaust limits for IP1
     for (let i = 0; i < 2; i++) {
       const req = { ip: "192.168.1.1" } as Request
       const setHeader = vi.fn()
@@ -184,7 +144,6 @@ describe("createRateLimitMiddleware", () => {
       await middleware(req, res, next)
     }
 
-    // IP1 should be rate limited
     {
       const req = { ip: "192.168.1.1" } as Request
       const setHeader = vi.fn()
@@ -197,7 +156,6 @@ describe("createRateLimitMiddleware", () => {
       expect(status).toHaveBeenCalledWith(429)
     }
 
-    // IP2 should still work
     {
       const req = { ip: "192.168.1.2" } as Request
       const setHeader = vi.fn()
@@ -210,15 +168,10 @@ describe("createRateLimitMiddleware", () => {
   })
 
   it("allows requests again after refill time", async () => {
-    const config: RateLimitConfig = {
-      enabled: true,
-      capacity: 2,
-      refillRate: 1, // 1 token per second
-    }
+    const config: RateLimitConfig = { enabled: true, capacity: 2, refillRate: 1 }
 
     const middleware = createRateLimitMiddleware({ config, store })
 
-    // Exhaust capacity
     for (let i = 0; i < 2; i++) {
       const req = { ip: "192.168.1.1" } as Request
       const setHeader = vi.fn()
@@ -228,7 +181,6 @@ describe("createRateLimitMiddleware", () => {
       await middleware(req, res, next)
     }
 
-    // Should be rate limited
     {
       const req = { ip: "192.168.1.1" } as Request
       const setHeader = vi.fn()
@@ -241,10 +193,8 @@ describe("createRateLimitMiddleware", () => {
       expect(status).toHaveBeenCalledWith(429)
     }
 
-    // Advance time by 2 seconds (refill 2 tokens)
     vi.advanceTimersByTime(2000)
 
-    // Should work now
     {
       const req = { ip: "192.168.1.1" } as Request
       const setHeader = vi.fn()

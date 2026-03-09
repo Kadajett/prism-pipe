@@ -31,10 +31,16 @@ export const PipelineStepConfigSchema = z.object({
 });
 export type PipelineStepConfig = z.infer<typeof PipelineStepConfigSchema>;
 
+export const AuthConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  apiKey: z.string().min(32, 'API key must be at least 32 characters').optional(),
+});
+export type AuthConfig = z.infer<typeof AuthConfigSchema>;
+
 export const RateLimitConfigSchema = z.object({
-  windowMs: z.number().positive().default(60_000),
-  maxRequests: z.number().positive().default(60),
-  keyBy: z.enum(['ip', 'apiKey', 'user']).default('ip'),
+  enabled: z.boolean().default(false),
+  capacity: z.number().positive().default(60),
+  refillRate: z.number().positive().default(1),
 });
 export type RateLimitConfig = z.infer<typeof RateLimitConfigSchema>;
 
@@ -69,7 +75,8 @@ export const PrismPipeConfigSchema = z.object({
   server: nestedWithDefaults(ServerConfigSchema),
   providers: z.record(z.string(), ProviderConfigSchema).default({}),
   pipeline: z.array(PipelineStepConfigSchema).default([]),
-  rateLimits: RateLimitConfigSchema.optional(),
+  auth: nestedWithDefaults(AuthConfigSchema),
+  rateLimits: nestedWithDefaults(RateLimitConfigSchema),
   logging: nestedWithDefaults(LoggingConfigSchema),
   store: nestedWithDefaults(StoreConfigSchema),
 });
