@@ -286,7 +286,7 @@ export class OpenAITransformer implements ProviderTransformer {
 	streamChunkToCanonical(chunk: unknown): CanonicalStreamChunk | null {
 		const c = chunk as Record<string, unknown>;
 		// Handle [DONE]
-		if (c === null || (typeof c === 'string' && c.trim() === '[DONE]')) {
+		if (c === null || (typeof c === 'string' && (c as string).trim() === '[DONE]')) {
 			return { type: 'done' };
 		}
 

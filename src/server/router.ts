@@ -59,7 +59,7 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
 	for (const route of config.routes) {
 		app.post(route.path, async (req: Request, res: Response) => {
 			const startTime = Date.now();
-			const reqId = (req as Record<string, unknown>).requestId as string;
+			const reqId = (req as unknown as Record<string, unknown>).requestId as string;
 
 			try {
 				const body = req.body as Record<string, unknown>;
