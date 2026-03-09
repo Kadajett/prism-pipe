@@ -3,7 +3,18 @@
   "version": "0.1.0",
   "description": "AI proxy with configurable rate limiting, fallbacks, logging, and multi-IP egress",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/lib.js",
+  "types": "dist/lib.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/lib.js",
+      "types": "./dist/lib.d.ts"
+    },
+    "./config": {
+      "import": "./dist/config/loader.js",
+      "types": "./dist/config/loader.d.ts"
+    }
+  },
   "bin": {
     "prism-pipe": "dist/cli/index.js"
   },

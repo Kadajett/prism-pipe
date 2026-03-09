@@ -10,6 +10,6 @@ const args = process.argv.slice(2);
 if (args.includes('install') || args.includes('uninstall')) {
   parseInstallArgs(args);
 } else {
-  // Default: boot the server
+  // Default: boot the server via the script entry point
   await import('../index.js');
 }
