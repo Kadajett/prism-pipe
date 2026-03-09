@@ -24,7 +24,10 @@ export interface ProviderCallResult {
 
 export interface ProviderStreamResult {
   chunks: AsyncIterableIterator<CanonicalStreamChunk>;
+  /** Time from request start until HTTP response headers received */
   latencyMs: number;
+  /** Time from request start until first parsed SSE chunk yielded */
+  ttfbMs: number;
   provider: string;
 }
 
@@ -183,6 +186,7 @@ export async function callProviderStream(opts: ProviderCallOptions): Promise<Pro
 
   const decoder = new TextDecoder();
   let buffer = '';
+  let firstChunkMs = 0;
 
   async function* parseSSE(): AsyncIterableIterator<CanonicalStreamChunk> {
     while (true) {
@@ -207,7 +211,10 @@ export async function callProviderStream(opts: ProviderCallOptions): Promise<Pro
           try {
             const parsed = JSON.parse(data);
             const chunk = transformer.streamChunkToCanonical(parsed);
-            if (chunk) yield chunk;
+            if (chunk) {
+              if (!firstChunkMs) firstChunkMs = Date.now() - start;
+              yield chunk;
+            }
           } catch {
             // Skip malformed JSON
           }
@@ -219,9 +226,15 @@ export async function callProviderStream(opts: ProviderCallOptions): Promise<Pro
     }
   }
 
+  const httpLatencyMs = Date.now() - start;
+
   return {
     chunks: parseSSE(),
-    latencyMs: Date.now() - start,
+    latencyMs: httpLatencyMs,
+    get ttfbMs() {
+      // Returns first chunk time once available, falls back to HTTP response time
+      return firstChunkMs || httpLatencyMs;
+    },
     provider: providerConfig.name,
   };
 }
