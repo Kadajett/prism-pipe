@@ -347,3 +347,110 @@ describe('Cross-provider transforms with Gemini and Ollama', () => {
 		expect(usage.output_tokens).toBe(5);
 	});
 });
+
+describe('Extras passthrough (response_format, etc.)', () => {
+	const openai = new OpenAITransformer();
+
+	it('captures response_format into extras during toCanonical', () => {
+		const raw = {
+			model: 'gpt-4o',
+			messages: [{ role: 'user', content: 'List 3 colors' }],
+			response_format: {
+				type: 'json_schema',
+				json_schema: {
+					name: 'ColorList',
+					strict: true,
+					schema: {
+						type: 'object',
+						properties: { colors: { type: 'array', items: { type: 'string' } } },
+						required: ['colors'],
+					},
+				},
+			},
+		};
+
+		const canonical = openai.toCanonical(raw);
+		expect(canonical.extras).toBeDefined();
+		expect(canonical.extras!.response_format).toEqual(raw.response_format);
+	});
+
+	it('round-trips response_format through toCanonical → fromCanonical', () => {
+		const raw = {
+			model: 'mercury-2',
+			messages: [{ role: 'user', content: 'List 3 colors' }],
+			response_format: {
+				type: 'json_schema',
+				json_schema: {
+					name: 'ColorList',
+					strict: true,
+					schema: {
+						type: 'object',
+						properties: { colors: { type: 'array', items: { type: 'string' } } },
+						required: ['colors'],
+					},
+				},
+			},
+		};
+
+		const canonical = openai.toCanonical(raw);
+		const output = openai.fromCanonical(canonical) as Record<string, unknown>;
+		expect(output.response_format).toEqual(raw.response_format);
+	});
+
+	it('round-trips multiple passthrough fields (seed, logprobs, frequency_penalty)', () => {
+		const raw = {
+			model: 'gpt-4o',
+			messages: [{ role: 'user', content: 'Hi' }],
+			temperature: 0.5,
+			seed: 42,
+			logprobs: true,
+			top_logprobs: 3,
+			frequency_penalty: 0.8,
+			presence_penalty: 0.2,
+			user: 'user-123',
+		};
+
+		const canonical = openai.toCanonical(raw);
+		expect(canonical.temperature).toBe(0.5);
+		expect(canonical.extras?.seed).toBe(42);
+		expect(canonical.extras?.logprobs).toBe(true);
+		expect(canonical.extras?.top_logprobs).toBe(3);
+		expect(canonical.extras?.frequency_penalty).toBe(0.8);
+
+		const output = openai.fromCanonical(canonical) as Record<string, unknown>;
+		expect(output.temperature).toBe(0.5);
+		expect(output.seed).toBe(42);
+		expect(output.logprobs).toBe(true);
+		expect(output.top_logprobs).toBe(3);
+		expect(output.frequency_penalty).toBe(0.8);
+		expect(output.presence_penalty).toBe(0.2);
+		expect(output.user).toBe('user-123');
+	});
+
+	it('does not put known fields into extras', () => {
+		const raw = {
+			model: 'gpt-4o',
+			messages: [{ role: 'user', content: 'Hi' }],
+			temperature: 0.5,
+			max_tokens: 100,
+			stream: true,
+		};
+
+		const canonical = openai.toCanonical(raw);
+		expect(canonical.extras).toBeUndefined();
+	});
+
+	it('extras do not overwrite explicitly mapped fields in fromCanonical', () => {
+		const canonical: CanonicalRequest = {
+			model: 'gpt-4o',
+			messages: [{ role: 'user', content: 'Hi' }],
+			temperature: 0.7,
+			extras: { temperature: 999, model: 'evil-model', response_format: { type: 'json_object' } },
+		};
+
+		const output = openai.fromCanonical(canonical) as Record<string, unknown>;
+		expect(output.temperature).toBe(0.7);
+		expect(output.model).toBe('gpt-4o');
+		expect(output.response_format).toEqual({ type: 'json_object' });
+	});
+});

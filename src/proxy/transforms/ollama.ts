@@ -123,6 +123,17 @@ export class OllamaTransformer implements ProviderTransformer {
         };
       });
     }
+
+    // Capture unrecognized fields into extras for passthrough
+    const knownKeys = new Set([
+      'model', 'messages', 'options', 'stream', 'tools', 'format',
+    ]);
+    const extras: Record<string, unknown> = {};
+    for (const key of Object.keys(r)) {
+      if (!knownKeys.has(key)) extras[key] = r[key];
+    }
+    if (Object.keys(extras).length > 0) req.extras = extras;
+
     return req;
   }
 
@@ -204,6 +215,14 @@ export class OllamaTransformer implements ProviderTransformer {
         function: { name: t.name, description: t.description, parameters: t.inputSchema },
       }));
     }
+
+    // Spread extras back into the outgoing request
+    if (req.extras) {
+      for (const [key, value] of Object.entries(req.extras)) {
+        if (!(key in result)) result[key] = value;
+      }
+    }
+
     return result;
   }
 

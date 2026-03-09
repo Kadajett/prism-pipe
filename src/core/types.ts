@@ -86,6 +86,13 @@ export interface CanonicalRequest {
   stopSequences?: string[];
   stream?: boolean;
   providerExtensions?: Record<string, unknown>;
+  /**
+   * Passthrough fields not explicitly modeled in the canonical schema.
+   * Captured from the incoming request and spread back into the outgoing request,
+   * ensuring fields like `response_format`, `logprobs`, `seed`, etc. survive
+   * the canonical round-trip without requiring explicit support for each one.
+   */
+  extras?: Record<string, unknown>;
 }
 
 export interface UsageInfo {
