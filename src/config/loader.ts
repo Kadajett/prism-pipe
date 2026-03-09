@@ -1,190 +1,102 @@
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
-import parseArgs from "minimist";
-import { parse as parseYaml } from "yaml";
-import { getDefaults } from "./defaults.js";
-import { type ResolvedConfig, validateConfig } from "./schema.js";
-
-// ── File discovery ──
-
-const CONFIG_NAMES = ["prism-pipe.yaml", "prism-pipe.yml", "prism-pipe.json", "prism-pipe.toml"];
+import { readFileSync, existsSync } from 'node:fs';
+import { parse as parseYaml } from 'yaml';
+import type { ResolvedConfig, ProviderConfig, RouteConfig } from '../core/types.js';
+import { DEFAULT_CONFIG } from './defaults.js';
 
 /**
- * Find the first config file in CWD, then fall back to ~/.prism-pipe/.
+ * Interpolate ${VAR} references with environment variables.
  */
-export function findConfigFile(cwd = process.cwd()): string | null {
-  for (const name of CONFIG_NAMES) {
-    const local = resolve(cwd, name);
-    if (existsSync(local)) return local;
-  }
-  const homeDir = join(homedir(), ".prism-pipe");
-  for (const name of CONFIG_NAMES) {
-    const global = join(homeDir, name);
-    if (existsSync(global)) return global;
-  }
-  return null;
+function interpolateEnv(value: string): string {
+	return value.replace(/\$\{([^}]+)\}/g, (_, varName) => {
+		return process.env[varName.trim()] ?? '';
+	});
 }
 
-// ── ENV interpolation in YAML values ──
-
-/**
- * Recursively resolve `${VAR_NAME}` placeholders in string values.
- */
-export function interpolateEnv(obj: unknown): unknown {
-  if (typeof obj === "string") {
-    return obj.replace(/\$\{([^}]+)\}/g, (_, key: string) => {
-      const val = process.env[key.trim()];
-      if (val === undefined) {
-        throw new Error(`Environment variable "${key.trim()}" referenced in config but not set`);
-      }
-      return val;
-    });
-  }
-  if (Array.isArray(obj)) return obj.map(interpolateEnv);
-  if (obj !== null && typeof obj === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
-      out[k] = interpolateEnv(v);
-    }
-    return out;
-  }
-  return obj;
-}
-
-// ── ENV overrides (PRISM_ prefix) ──
-
-/**
- * Flatten PRISM_ env vars into a nested object.
- * PRISM_SERVER_PORT=4000 → { server: { port: 4000 } }
- */
-export function envOverrides(): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  const prefix = "PRISM_";
-
-  for (const [key, value] of Object.entries(process.env)) {
-    if (!key.startsWith(prefix) || value === undefined) continue;
-    const path = key.slice(prefix.length).toLowerCase().split("_");
-
-    let current = result;
-    for (let i = 0; i < path.length - 1; i++) {
-      current[path[i]] = current[path[i]] ?? {};
-      current = current[path[i]] as Record<string, unknown>;
-    }
-    current[path[path.length - 1]] = coerce(value);
-  }
-
-  return result;
-}
-
-function coerce(val: string): unknown {
-  if (val === "true") return true;
-  if (val === "false") return false;
-  const n = Number(val);
-  if (!Number.isNaN(n) && val.trim() !== "") return n;
-  return val;
-}
-
-// ── CLI flag overrides ──
-
-/**
- * Parse CLI argv into a nested config object.
- * --server.port 4000 → { server: { port: 4000 } }
- * --port 4000 → { port: 4000 } (flat alias)
- */
-export function cliOverrides(argv: string[] = process.argv.slice(2)): Record<string, unknown> {
-  const args = parseArgs(argv, { string: ["_"] });
-  const result: Record<string, unknown> = {};
-
-  for (const [key, value] of Object.entries(args)) {
-    if (key === "_") continue;
-    const path = key.split(".");
-    let current = result;
-    for (let i = 0; i < path.length - 1; i++) {
-      current[path[i]] = current[path[i]] ?? {};
-      current = current[path[i]] as Record<string, unknown>;
-    }
-    current[path[path.length - 1]] = value;
-  }
-
-  return result;
-}
-
-// ── Deep merge ──
-
-export function deepMerge(
-  target: Record<string, unknown>,
-  ...sources: Record<string, unknown>[]
-): Record<string, unknown> {
-  for (const source of sources) {
-    for (const [key, val] of Object.entries(source)) {
-      if (
-        val !== null &&
-        typeof val === "object" &&
-        !Array.isArray(val) &&
-        typeof target[key] === "object" &&
-        target[key] !== null &&
-        !Array.isArray(target[key])
-      ) {
-        target[key] = deepMerge(
-          { ...(target[key] as Record<string, unknown>) },
-          val as Record<string, unknown>,
-        );
-      } else {
-        target[key] = val;
-      }
-    }
-  }
-  return target;
-}
-
-// ── File loading ──
-
-function loadFile(filePath: string): Record<string, unknown> {
-  const content = readFileSync(filePath, "utf-8");
-  if (filePath.endsWith(".json")) {
-    return JSON.parse(content) as Record<string, unknown>;
-  }
-  // YAML handles .yaml/.yml
-  return (parseYaml(content) ?? {}) as Record<string, unknown>;
-}
-
-// ── Main resolver ──
-
-export interface LoadOptions {
-  /** Override CWD for config file search */
-  cwd?: string;
-  /** Explicit config file path (skips discovery) */
-  configFile?: string;
-  /** CLI argv (defaults to process.argv) */
-  argv?: string[];
+function deepInterpolate(obj: unknown): unknown {
+	if (typeof obj === 'string') return interpolateEnv(obj);
+	if (Array.isArray(obj)) return obj.map(deepInterpolate);
+	if (obj && typeof obj === 'object') {
+		const result: Record<string, unknown> = {};
+		for (const [k, v] of Object.entries(obj)) {
+			result[k] = deepInterpolate(v);
+		}
+		return result;
+	}
+	return obj;
 }
 
 /**
- * Load, merge, validate, and freeze configuration.
- * Priority: defaults → YAML file → ENV vars → CLI flags
+ * Load config from a YAML file, interpolate env vars, merge with defaults.
  */
-export function resolveConfig(options: LoadOptions = {}): ResolvedConfig {
-  // 1. Defaults
-  const defaults = getDefaults() as Record<string, unknown>;
+export function loadConfig(configPath?: string): ResolvedConfig {
+	const paths = configPath
+		? [configPath]
+		: ['prism-pipe.yaml', 'prism-pipe.yml', 'config.yaml', 'config.yml'];
 
-  // 2. YAML file
-  const file = options.configFile ?? findConfigFile(options.cwd);
-  let fileConfig: Record<string, unknown> = {};
-  if (file) {
-    fileConfig = loadFile(file);
-    fileConfig = interpolateEnv(fileConfig) as Record<string, unknown>;
-  }
+	let rawConfig: Record<string, unknown> = {};
 
-  // 3. ENV overrides (PRISM_ prefix)
-  const envConfig = envOverrides();
+	for (const p of paths) {
+		if (existsSync(p)) {
+			const content = readFileSync(p, 'utf-8');
+			rawConfig = (parseYaml(content) as Record<string, unknown>) ?? {};
+			break;
+		}
+	}
 
-  // 4. CLI overrides
-  const cliConfig = cliOverrides(options.argv ?? []);
+	// Interpolate env vars
+	rawConfig = deepInterpolate(rawConfig) as Record<string, unknown>;
 
-  // Merge: defaults < file < env < cli
-  const merged = deepMerge({}, defaults, fileConfig, envConfig, cliConfig);
+	// Merge with defaults
+	const config: ResolvedConfig = {
+		port: Number(rawConfig.port ?? process.env.PORT ?? DEFAULT_CONFIG.port),
+		logLevel: String(rawConfig.logLevel ?? process.env.LOG_LEVEL ?? DEFAULT_CONFIG.logLevel),
+		requestTimeout: Number(rawConfig.requestTimeout ?? DEFAULT_CONFIG.requestTimeout),
+		providers: {},
+		routes: DEFAULT_CONFIG.routes,
+	};
 
-  // Validate + freeze
-  return validateConfig(merged);
+	// Parse providers
+	if (rawConfig.providers && typeof rawConfig.providers === 'object') {
+		for (const [name, value] of Object.entries(rawConfig.providers as Record<string, unknown>)) {
+			const p = value as Record<string, unknown>;
+			config.providers[name] = {
+				name,
+				baseUrl: String(p.baseUrl ?? p.base_url ?? ''),
+				apiKey: String(p.apiKey ?? p.api_key ?? ''),
+				models: p.models as Record<string, string> | undefined,
+				defaultModel: p.defaultModel as string | undefined,
+				timeout: p.timeout ? Number(p.timeout) : undefined,
+			};
+		}
+	}
+
+	// Auto-configure providers from env if none specified
+	if (Object.keys(config.providers).length === 0) {
+		if (process.env.OPENAI_API_KEY) {
+			config.providers.openai = {
+				name: 'openai',
+				baseUrl: 'https://api.openai.com',
+				apiKey: process.env.OPENAI_API_KEY,
+			};
+		}
+		if (process.env.ANTHROPIC_API_KEY) {
+			config.providers.anthropic = {
+				name: 'anthropic',
+				baseUrl: 'https://api.anthropic.com',
+				apiKey: process.env.ANTHROPIC_API_KEY,
+			};
+		}
+	}
+
+	// Parse routes
+	if (Array.isArray(rawConfig.routes)) {
+		config.routes = (rawConfig.routes as Array<Record<string, unknown>>).map((r) => ({
+			path: String(r.path),
+			providers: (r.providers as string[]) ?? [],
+			pipeline: r.pipeline as string[] | undefined,
+			systemPrompt: r.systemPrompt as string | undefined,
+		}));
+	}
+
+	return config;
 }

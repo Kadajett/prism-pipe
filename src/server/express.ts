@@ -1,135 +1,61 @@
-/**
- * Express app factory with graceful shutdown
- */
-import express, { type Express } from 'express';
-import cors from 'cors';
-import type { Server } from 'node:http';
-import type { PrismConfig } from '../types/index.js';
-import { requestIdMiddleware } from './middleware/request-id.js';
-import { createResponseHeadersMiddleware } from './middleware/response-headers.js';
-import { errorHandler } from './middleware/error-handler.js';
-import { createApiRouter } from './router.js';
-import { healthCheck, readinessCheck } from './health.js';
+import express, { type Request, type Response, type NextFunction } from 'express';
+import { ulid } from 'ulid';
+import { PipelineError } from '../core/types.js';
 
-/**
- * Create Express application with all middleware configured
- */
-export function createApp(config: PrismConfig): Express {
-  const app = express();
+export function createApp() {
+	const app = express();
 
-  // Trust proxy if behind reverse proxy (for correct IP addresses)
-  if (config.server.trustProxy) {
-    app.set('trust proxy', true);
-  }
+	// Body parser
+	app.use(express.json({ limit: '10mb' }));
 
-  // Request ID middleware (must be first to ensure all logging has ID)
-  app.use(requestIdMiddleware);
+	// CORS
+	app.use((_req: Request, res: Response, next: NextFunction) => {
+		res.setHeader('Access-Control-Allow-Origin', '*');
+		res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+		res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-ID');
+		if (_req.method === 'OPTIONS') {
+			res.status(204).end();
+			return;
+		}
+		next();
+	});
 
-  // Response headers middleware
-  app.use(createResponseHeadersMiddleware(config.responseHeaders.verbosity));
+	// Request ID
+	app.use((req: Request, res: Response, next: NextFunction) => {
+		const reqId = (req.headers['x-request-id'] as string) ?? ulid();
+		res.setHeader('X-Request-ID', reqId);
+		(req as Record<string, unknown>).requestId = reqId;
+		next();
+	});
 
-  // CORS configuration
-  if (config.server.cors.enabled) {
-    app.use(
-      cors({
-        origin: config.server.cors.origins,
-        credentials: true,
-      })
-    );
-  }
+	// Health endpoint
+	app.get('/health', (_req: Request, res: Response) => {
+		res.json({ status: 'ok', timestamp: new Date().toISOString() });
+	});
 
-  // Body parsing
-  app.use(express.json({ limit: '10mb' })); // Standard JSON parsing
-  app.use(express.raw({ type: 'application/octet-stream', limit: '50mb' })); // Raw mode for streaming
-
-  // Health endpoints (before router to avoid auth/rate limiting)
-  app.get('/health', healthCheck);
-  app.get('/ready', readinessCheck(config));
-
-  // Mount API routes
-  app.use(createApiRouter(config));
-
-  // Error handler (must be last)
-  app.use(errorHandler);
-
-  return app;
+	return app;
 }
 
 /**
- * Start Express server with graceful shutdown
+ * Error handler middleware — must be added after all routes.
  */
-export async function startServer(
-  config: PrismConfig
-): Promise<{ app: Express; server: Server; shutdown: () => Promise<void> }> {
-  const app = createApp(config);
+export function errorHandler(err: Error, _req: Request, res: Response, _next: NextFunction) {
+	if (err instanceof PipelineError) {
+		res.status(err.statusCode).json({
+			error: {
+				message: err.message,
+				code: err.code,
+				step: err.step,
+			},
+		});
+		return;
+	}
 
-  return new Promise((resolve, reject) => {
-    const server = app.listen(
-      config.server.port,
-      config.server.host,
-      () => {
-        const providers = config.providers.filter((p) => p.enabled);
-        const middlewareCount = app._router?.stack?.length || 0;
-
-        console.log({
-          event: 'server_started',
-          port: config.server.port,
-          host: config.server.host,
-          providers: providers.map((p) => p.name),
-          middleware_count: middlewareCount,
-          cors_enabled: config.server.cors.enabled,
-          trust_proxy: config.server.trustProxy,
-        });
-
-        // Graceful shutdown handler
-        const shutdown = (): Promise<void> => {
-          return new Promise((resolveShutdown, rejectShutdown) => {
-            console.log({
-              event: 'shutdown_initiated',
-              timeout: config.server.shutdownTimeout,
-            });
-
-            const timeout = setTimeout(() => {
-              console.log({
-                event: 'shutdown_forced',
-                reason: 'timeout',
-              });
-              rejectShutdown(new Error('Shutdown timeout exceeded'));
-            }, config.server.shutdownTimeout);
-
-            server.close((err) => {
-              clearTimeout(timeout);
-              if (err) {
-                console.error({
-                  event: 'shutdown_error',
-                  error: err.message,
-                });
-                rejectShutdown(err);
-              } else {
-                console.log({ event: 'shutdown_complete' });
-                resolveShutdown();
-              }
-            });
-          });
-        };
-
-        // Register signal handlers
-        process.on('SIGTERM', () => {
-          shutdown()
-            .then(() => process.exit(0))
-            .catch(() => process.exit(1));
-        });
-
-        process.on('SIGINT', () => {
-          shutdown()
-            .then(() => process.exit(0))
-            .catch(() => process.exit(1));
-        });
-
-        resolve({ app, server, shutdown });
-      }
-    );
-
-    server.on('error', reject);
-  });
+	console.error('Unhandled error:', err);
+	res.status(500).json({
+		error: {
+			message: 'Internal server error',
+			code: 'unknown',
+		},
+	});
 }

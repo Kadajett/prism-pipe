@@ -1,12 +1,20 @@
-import type { PipelineContext } from "../core/context.js";
-import type { PipelineStep } from "../core/pipeline.js";
+import type { Middleware } from '../core/pipeline.js';
 
-/** Pipeline middleware: inject system prompt into requests. */
-export class InjectSystemStep implements PipelineStep {
-  readonly name = "inject-system";
-
-  async execute(_ctx: PipelineContext, _next: () => Promise<void>): Promise<void> {
-    // TODO: implement system prompt injection
-    throw new Error("Not implemented");
-  }
+/**
+ * Prepend/append system prompts from route config to ctx.request.systemPrompt.
+ */
+export function createInjectSystemMiddleware(options?: {
+	prepend?: string;
+	append?: string;
+}): Middleware {
+	return async function injectSystem(ctx, next) {
+		if (options?.prepend || options?.append) {
+			const parts: string[] = [];
+			if (options.prepend) parts.push(options.prepend);
+			if (ctx.request.systemPrompt) parts.push(ctx.request.systemPrompt);
+			if (options.append) parts.push(options.append);
+			ctx.request.systemPrompt = parts.join('\n\n');
+		}
+		await next();
+	};
 }
