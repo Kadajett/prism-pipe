@@ -127,8 +127,26 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
           });
 
           if ('chunks' in result) {
-            setResponseHeaders(res, reqId, result.provider, result.latencyMs);
+            const preStreamMs = Date.now() - startTime;
+            setResponseHeaders(res, reqId, result.provider, preStreamMs);
+            res.setHeader('X-Prism-Upstream-Latency', String(Math.round(result.latencyMs)));
+
             await writeSSEStream(res, result.chunks, clientTransformer);
+
+            const totalMs = Date.now() - startTime;
+            ctx.log.info('request completed', {
+              model: ctx.request.model,
+              provider: result.provider,
+              latency: totalMs,
+              latency_upstream_ms: Math.round(result.latencyMs),
+              latency_ttfb_ms: Math.round(result.ttfbMs),
+              latency_total_ms: totalMs,
+              stream: true,
+            });
+            ctx.metrics.histogram('request.latency_ms', totalMs);
+            ctx.metrics.histogram('request.upstream_latency_ms', result.latencyMs);
+            ctx.metrics.histogram('request.ttfb_ms', result.ttfbMs);
+
             return;
           }
         }
@@ -145,11 +163,27 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
           ctx.response = result.response;
           ctx.metadata.set('provider', result.provider);
 
+          const totalMs = Date.now() - startTime;
           const serialized = clientTransformer.responseFromCanonical(result.response);
-          setResponseHeaders(res, reqId, result.provider, Date.now() - startTime);
+          setResponseHeaders(res, reqId, result.provider, totalMs);
+          res.setHeader('X-Prism-Upstream-Latency', String(Math.round(result.latencyMs)));
           if (providers.length > 1 && result.provider !== primaryProvider.config.name) {
             res.setHeader('X-Prism-Fallback-Used', 'true');
           }
+
+          ctx.log.info('request completed', {
+            model: ctx.response.model ?? ctx.request.model,
+            provider: result.provider,
+            latency: totalMs,
+            latency_upstream_ms: Math.round(result.latencyMs),
+            latency_total_ms: totalMs,
+            inputTokens: ctx.response.usage?.inputTokens,
+            outputTokens: ctx.response.usage?.outputTokens,
+            stopReason: ctx.response.stopReason,
+          });
+          ctx.metrics.histogram('request.latency_ms', totalMs);
+          ctx.metrics.histogram('request.upstream_latency_ms', result.latencyMs);
+
           res.json(serialized);
         }
       } catch (err) {
