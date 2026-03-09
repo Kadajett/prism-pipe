@@ -6,8 +6,8 @@
 import { existsSync } from 'node:fs';
 import { resolve, isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { Plugin, PluginReference } from './types.js';
-import { PluginRegistry } from './registry.js';
+import type { Plugin, PluginReference } from './types';
+import { PluginRegistry } from './registry';
 
 /**
  * Validate that a loaded module is a valid Plugin.

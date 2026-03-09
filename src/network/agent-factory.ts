@@ -5,7 +5,7 @@
 
 import * as http from 'node:http';
 import * as https from 'node:https';
-import type { IpPool } from './ip-pool.js';
+import type { IpPool } from './ip-pool';
 
 export interface AgentFactoryOptions {
   ipPool: IpPool;

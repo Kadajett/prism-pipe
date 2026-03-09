@@ -3,7 +3,7 @@ import type {
   CanonicalResponse,
   CanonicalStreamChunk,
   ProviderCapabilities,
-} from '../core/types.js';
+} from '../core/types';
 
 export interface ProviderTransformer {
   readonly provider: string;

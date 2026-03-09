@@ -1,6 +1,6 @@
 import type { Response as ExpressResponse } from 'express';
-import type { CanonicalStreamChunk } from '../core/types.js';
-import type { ProviderTransformer } from './transform-registry.js';
+import type { CanonicalStreamChunk } from '../core/types';
+import type { ProviderTransformer } from './transform-registry';
 
 /**
  * Writes canonical stream chunks as SSE events to an Express response.

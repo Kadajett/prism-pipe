@@ -1,3 +1,3 @@
-export { FallbackChain } from "./chain.js";
-export { retryWithBackoff } from "./retry.js";
-export { CircuitBreaker, CircuitBreakerRegistry, type CircuitBreakerOptions, type CircuitState } from "./circuit-breaker.js";
+export { executeFallbackChain, type FallbackChainOptions } from "./chain";
+export { retryWithBackoff } from "./retry";
+export { CircuitBreaker, CircuitBreakerRegistry, type CircuitBreakerOptions, type CircuitState } from "./circuit-breaker";

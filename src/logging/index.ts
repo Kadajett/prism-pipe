@@ -1,2 +1,2 @@
-export { createLogger } from "./logger.js";
-export { logRequest } from "./request-log.js";
+export { createLogger } from "./logger";
+export { RequestLogger, type RequestLoggerConfig } from "./request-log";

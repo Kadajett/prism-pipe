@@ -6,7 +6,7 @@
 
 import { timingSafeEqual } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
-import type { TenantContext, TenantManager } from './tenant.js';
+import type { TenantContext, TenantManager } from './tenant';
 
 declare global {
   namespace Express {

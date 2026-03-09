@@ -1,2 +1,2 @@
-export { DEFAULT_CONFIG } from './defaults.js';
-export { loadConfig } from './loader.js';
+export { DEFAULT_CONFIG } from './defaults';
+export { loadConfig } from './loader';

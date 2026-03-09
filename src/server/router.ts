@@ -1,12 +1,12 @@
 import type { Express, Request, Response } from 'express';
-import { PipelineContext } from '../core/context.js';
-import type { PipelineEngine } from '../core/pipeline.js';
-import { createTimeoutBudget } from '../core/timeout.js';
-import type { CanonicalRequest, ResolvedConfig } from '../core/types.js';
-import { PipelineError } from '../core/types.js';
-import { executeFallbackChain } from '../fallback/chain.js';
-import { writeSSEStream } from '../proxy/stream.js';
-import type { TransformRegistry } from '../proxy/transform-registry.js';
+import { PipelineContext } from '../core/context';
+import type { PipelineEngine } from '../core/pipeline';
+import { createTimeoutBudget } from '../core/timeout';
+import type { CanonicalRequest, ResolvedConfig } from '../core/types';
+import { PipelineError } from '../core/types';
+import { executeFallbackChain } from '../fallback/chain';
+import { writeSSEStream } from '../proxy/stream';
+import type { TransformRegistry } from '../proxy/transform-registry';
 
 export interface RouterOptions {
   config: ResolvedConfig;

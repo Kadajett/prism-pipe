@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
-import { createRateLimitMiddleware } from './rate-limit.js';
-import { TokenBucket } from '../rate-limit/token-bucket.js';
-import { MemoryStore } from '../store/memory.js';
+import { createRateLimitMiddleware } from './rate-limit';
+import { TokenBucket } from '../rate-limit/token-bucket';
+import { MemoryStore } from '../store/memory';
 
 function mockRes() {
   const json = vi.fn();

@@ -1,4 +1,4 @@
-import type { Middleware } from '../core/pipeline.js';
+import type { Middleware } from '../core/pipeline';
 
 /**
  * Prepend/append system prompts from route config to ctx.request.systemPrompt.

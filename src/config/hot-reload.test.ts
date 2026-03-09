@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { diffConfig } from './hot-reload.js';
-import type { ResolvedConfig } from '../core/types.js';
+import { diffConfig } from './hot-reload';
+import type { ResolvedConfig } from '../core/types';
 
 const baseConfig: ResolvedConfig = {
   port: 3000,

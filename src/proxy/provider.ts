@@ -1,12 +1,12 @@
-import type { TimeoutBudget } from '../core/timeout.js';
+import type { TimeoutBudget } from '../core/timeout';
 import type {
   CanonicalResponse,
   CanonicalStreamChunk,
   PipelineError as PipelineErrorType,
   ProviderConfig,
-} from '../core/types.js';
-import { PipelineError } from '../core/types.js';
-import type { ProviderTransformer } from './transform-registry.js';
+} from '../core/types';
+import { PipelineError } from '../core/types';
+import type { ProviderTransformer } from './transform-registry';
 
 export interface ProviderCallOptions {
   providerConfig: ProviderConfig;

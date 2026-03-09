@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { loadMiddlewareFromDir } from './custom-loader.js';
+import { loadMiddlewareFromDir } from './custom-loader';
 
 const TMP_DIR = resolve(import.meta.dirname ?? '.', '__test_middleware__');
 

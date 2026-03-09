@@ -8,8 +8,8 @@
  *   {{previous.content}}        — content from the immediately previous step
  */
 
-import type { CanonicalRequest, ContentBlock } from '../core/types.js';
-import type { StepResult } from '../core/composer.js';
+import type { CanonicalRequest, ContentBlock } from '../core/types';
+import type { StepResult } from '../core/composer';
 
 export interface TemplateContext {
   original: CanonicalRequest;

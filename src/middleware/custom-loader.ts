@@ -8,7 +8,7 @@
 import { existsSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { resolve, extname, basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { NamedMiddleware } from '../plugin/types.js';
+import type { NamedMiddleware } from '../plugin/types';
 
 const VALID_EXTENSIONS = new Set(['.ts', '.js', '.mts', '.mjs']);
 

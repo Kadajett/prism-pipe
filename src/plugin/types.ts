@@ -6,10 +6,10 @@
  */
 
 import type { z } from 'zod';
-import type { Middleware } from '../core/pipeline.js';
-import type { Store } from '../store/interface.js';
-import type { ScopedLogger } from '../logging/interface.js';
-import type { MetricsEmitter } from '../core/types.js';
+import type { Middleware } from '../core/pipeline';
+import type { Store } from '../store/interface';
+import type { ScopedLogger } from '../logging/interface';
+import type { MetricsEmitter } from '../core/types';
 
 // ─── Lifecycle Hooks ───
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createTimeoutBudget } from './timeout.js';
+import { createTimeoutBudget } from './timeout';
 
 describe('TimeoutBudget', () => {
   it('tracks remaining time', () => {

@@ -1,4 +1,4 @@
-import type { MetricsEmitter } from '../core/types.js';
+import type { MetricsEmitter } from '../core/types';
 
 export type CircuitState = 'closed' | 'open' | 'half-open';
 

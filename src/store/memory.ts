@@ -1,4 +1,4 @@
-import type { LogFilter, RateLimitEntry, RequestLogEntry, Store } from './interface.js';
+import type { LogFilter, RateLimitEntry, RequestLogEntry, Store } from './interface';
 
 export class MemoryStore implements Store {
   private rateLimitMap = new Map<string, { entry: RateLimitEntry; expiresAt: number }>();

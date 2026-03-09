@@ -1,2 +1,2 @@
-export { ChainComposer } from './chain.js';
-export { resolveTemplate, type TemplateContext } from './template.js';
+export { ChainComposer } from './chain';
+export { resolveTemplate, type TemplateContext } from './template';

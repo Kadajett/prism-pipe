@@ -3,7 +3,7 @@
  * Maps error classes to HTTP status codes with structured JSON responses
  */
 import type { Request, Response, NextFunction } from 'express';
-import type { PrismError, ErrorResponse } from '../../types/index.js';
+import type { PrismError, ErrorResponse } from '../../types/index';
 
 const ERROR_TYPE_MAP: Record<string, number> = {
   validation_error: 400,

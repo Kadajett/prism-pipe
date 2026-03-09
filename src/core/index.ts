@@ -1,6 +1,6 @@
-export { PipelineContext, type PipelineContextOptions } from './context.js';
-export { type Middleware, PipelineEngine } from './pipeline.js';
-export { createTimeoutBudget, type TimeoutBudget } from './timeout.js';
+export { PipelineContext, type PipelineContextOptions } from './context';
+export { type Middleware, PipelineEngine } from './pipeline';
+export { createTimeoutBudget, type TimeoutBudget } from './timeout';
 export {
   type CallProviderFn,
   type Composer,
@@ -13,7 +13,7 @@ export {
   hasComposer,
   listComposers,
   registerComposer,
-} from './composer.js';
+} from './composer';
 export type {
   CanonicalMessage,
   CanonicalRequest,
@@ -34,5 +34,5 @@ export type {
   ToolResultBlock,
   ToolUseBlock,
   UsageInfo,
-} from './types.js';
-export { PipelineError } from './types.js';
+} from './types';
+export { PipelineError } from './types';

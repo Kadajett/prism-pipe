@@ -5,8 +5,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 import type { Server } from 'node:http';
-import { createApp, startServer } from './express.js';
-import type { PrismConfig } from '../types/index.js';
+import { createApp, startServer } from './express';
+import type { PrismConfig } from '../types/index';
 
 describe('Express HTTP Shell', () => {
   let app: Express;

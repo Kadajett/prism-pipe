@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CallProviderFn, CompositionStep } from '../core/composer.js';
-import { PipelineContext } from '../core/context.js';
-import { createTimeoutBudget } from '../core/timeout.js';
-import type { CanonicalResponse, ResolvedConfig } from '../core/types.js';
-import { PipelineError } from '../core/types.js';
-import { ChainComposer } from './chain.js';
+import type { CallProviderFn, CompositionStep } from '../core/composer';
+import { PipelineContext } from '../core/context';
+import { createTimeoutBudget } from '../core/timeout';
+import type { CanonicalResponse, ResolvedConfig } from '../core/types';
+import { PipelineError } from '../core/types';
+import { ChainComposer } from './chain';
 
 function makeConfig(): ResolvedConfig {
   return {

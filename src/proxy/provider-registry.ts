@@ -1,4 +1,4 @@
-import type { ProviderConfig } from '../core/types.js';
+import type { ProviderConfig } from '../core/types';
 
 /**
  * Provider registry: register providers from config, resolve by name.

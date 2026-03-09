@@ -5,8 +5,8 @@ import type {
   CanonicalStreamChunk,
   ContentBlock,
   ProviderCapabilities,
-} from '../../core/types.js';
-import type { ProviderTransformer } from '../transform-registry.js';
+} from '../../core/types';
+import type { ProviderTransformer } from '../transform-registry';
 
 /**
  * Ollama ↔ Canonical transformer.

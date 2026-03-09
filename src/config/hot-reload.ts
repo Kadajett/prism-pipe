@@ -6,8 +6,8 @@
 import { existsSync, watch, type FSWatcher } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { parse as parseYaml } from 'yaml';
-import type { ResolvedConfig } from '../core/types.js';
-import type { ScopedLogger } from '../core/types.js';
+import type { ResolvedConfig } from '../core/types';
+import type { ScopedLogger } from '../core/types';
 
 // Fields that can be safely hot-reloaded
 const SAFE_FIELDS = new Set([
@@ -124,7 +124,7 @@ export function startConfigWatcher(opts: HotReloadOptions): () => void {
         // Build merged config: keep restart-required fields from old, apply safe from new
         const mergedConfig: ResolvedConfig = { ...currentConfig };
         for (const change of safeChanges) {
-          (mergedConfig as Record<string, unknown>)[change.field] = change.newValue;
+          (mergedConfig as unknown as Record<string, unknown>)[change.field] = change.newValue;
         }
 
         onApply(mergedConfig, safeChanges);

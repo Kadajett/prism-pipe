@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { PluginRegistry, NamingConflictError } from './registry.js';
-import type { Plugin } from './types.js';
+import { PluginRegistry, NamingConflictError } from './registry';
+import type { Plugin } from './types';
 
 function makePlugin(overrides: Partial<Plugin> & { name: string }): Plugin {
   return { version: '1.0.0', ...overrides };

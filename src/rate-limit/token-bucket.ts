@@ -1,4 +1,4 @@
-import type { Store } from '../store/interface.js';
+import type { Store } from '../store/interface';
 
 export interface TokenBucketConfig {
   capacity: number;

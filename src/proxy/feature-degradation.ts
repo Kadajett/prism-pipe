@@ -1,10 +1,12 @@
 import type {
   CanonicalRequest,
+  CanonicalResponse,
+  CanonicalStreamChunk,
   ProviderCapabilities,
   ContentBlock,
   ScopedLogger,
-} from '../core/types.js';
-import type { ProviderTransformer } from './transform-registry.js';
+} from '../core/types';
+import type { ProviderTransformer } from './transform-registry';
 
 /**
  * Feature degradation wrapper for transformers.
@@ -33,7 +35,7 @@ export class FeatureDegradationWrapper implements ProviderTransformer {
     return this.wrapped.responseToCanonical(raw);
   }
 
-  responseFromCanonical(res: unknown) {
+  responseFromCanonical(res: CanonicalResponse) {
     return this.wrapped.responseFromCanonical(res);
   }
 
@@ -41,7 +43,7 @@ export class FeatureDegradationWrapper implements ProviderTransformer {
     return this.wrapped.streamChunkToCanonical(chunk);
   }
 
-  streamChunkFromCanonical(chunk: unknown) {
+  streamChunkFromCanonical(chunk: CanonicalStreamChunk) {
     return this.wrapped.streamChunkFromCanonical(chunk);
   }
 
@@ -71,7 +73,7 @@ export class FeatureDegradationWrapper implements ProviderTransformer {
       degraded.systemPrompt = degraded.systemPrompt
         ? `${degraded.systemPrompt}\n\n${toolInstructions}`
         : toolInstructions;
-      delete degraded.tools;
+      degraded.tools = undefined;
     }
 
     // Degrade vision → strip images and log warning
@@ -137,7 +139,7 @@ export class FeatureDegradationWrapper implements ProviderTransformer {
         { role: 'user', content: `System instructions: ${req.systemPrompt}` },
         ...degraded.messages,
       ];
-      delete degraded.systemPrompt;
+      degraded.systemPrompt = undefined;
     }
 
     return degraded;

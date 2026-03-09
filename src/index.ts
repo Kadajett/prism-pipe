@@ -1,20 +1,20 @@
 import pino from 'pino';
-import { loadConfig } from './config/loader.js';
-import { PipelineEngine } from './core/pipeline.js';
-import type { ResolvedConfig } from './core/types.js';
-import { createLogMiddleware } from './middleware/log-request.js';
-import { createTransformMiddleware } from './middleware/transform-format.js';
-import { TransformRegistry } from './proxy/transform-registry.js';
-import { AnthropicTransformer } from './proxy/transforms/anthropic.js';
-import { OpenAITransformer } from './proxy/transforms/openai.js';
-import { TokenBucket } from './rate-limit/token-bucket.js';
-import { createAuthMiddleware } from './server/auth.js';
-import { createApp, errorHandler } from './server/express.js';
-import { createRateLimitMiddleware } from './server/rate-limit.js';
-import { setupRoutes } from './server/router.js';
-import type { Store } from './store/interface.js';
-import { MemoryStore } from './store/memory.js';
-import { SQLiteStore } from './store/sqlite.js';
+import { loadConfig } from './config/loader';
+import { PipelineEngine } from './core/pipeline';
+import type { ResolvedConfig } from './core/types';
+import { createLogMiddleware } from './middleware/log-request';
+import { createTransformMiddleware } from './middleware/transform-format';
+import { TransformRegistry } from './proxy/transform-registry';
+import { AnthropicTransformer } from './proxy/transforms/anthropic';
+import { OpenAITransformer } from './proxy/transforms/openai';
+import { TokenBucket } from './rate-limit/token-bucket';
+import { createAuthMiddleware } from './server/auth';
+import { createApp, errorHandler } from './server/express';
+import { createRateLimitMiddleware } from './server/rate-limit';
+import { setupRoutes } from './server/router';
+import type { Store } from './store/interface';
+import { MemoryStore } from './store/memory';
+import { SQLiteStore } from './store/sqlite';
 
 // ── Load config ──
 const config: ResolvedConfig = loadConfig();

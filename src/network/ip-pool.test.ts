@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { IpPool } from './ip-pool.js';
+import { IpPool } from './ip-pool';
 
 describe('IpPool', () => {
   describe('round-robin', () => {

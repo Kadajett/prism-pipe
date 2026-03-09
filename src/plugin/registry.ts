@@ -10,7 +10,7 @@ import type {
   NamedMiddleware,
   Plugin,
   StoreBackend,
-} from './types.js';
+} from './types';
 
 export type ExtensionKind = 'middleware' | 'composer' | 'store' | 'logSink' | 'metricsExporter';
 

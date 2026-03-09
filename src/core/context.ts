@@ -1,12 +1,12 @@
 import { ulid } from 'ulid';
-import { createTimeoutBudget, type TimeoutBudget } from './timeout.js';
+import { createTimeoutBudget, type TimeoutBudget } from './timeout';
 import type {
   CanonicalRequest,
   CanonicalResponse,
   MetricsEmitter,
   ResolvedConfig,
   ScopedLogger,
-} from './types.js';
+} from './types';
 
 export interface PipelineContextOptions {
   request: CanonicalRequest;

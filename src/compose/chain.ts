@@ -13,11 +13,11 @@ import type {
   CompositionStep,
   ErrorPolicy,
   StepResult,
-} from '../core/composer.js';
-import type { PipelineContext } from '../core/context.js';
-import type { CanonicalRequest, ContentBlock } from '../core/types.js';
-import { PipelineError } from '../core/types.js';
-import { resolveTemplate, type TemplateContext } from './template.js';
+} from '../core/composer';
+import type { PipelineContext } from '../core/context';
+import type { CanonicalRequest, ContentBlock } from '../core/types';
+import { PipelineError } from '../core/types';
+import { resolveTemplate, type TemplateContext } from './template';
 
 /** Extract text from content blocks */
 function extractText(content: ContentBlock[]): string {
