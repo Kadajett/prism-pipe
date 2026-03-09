@@ -38,7 +38,7 @@ export class GeminiTransformer implements ProviderTransformer {
       if (parts.length === 1 && typeof parts[0].text === 'string') {
         canonicalMessages.push({ role: canonicalRole, content: String(parts[0].text) });
       } else {
-        const blocks: ContentBlock[] = parts.map((part) => {
+        const blocks: ContentBlock[] = parts.map((part, index) => {
           if (part.text != null) {
             return { type: 'text' as const, text: String(part.text) };
           }
@@ -64,7 +64,7 @@ export class GeminiTransformer implements ProviderTransformer {
             const fc = part.functionCall as Record<string, unknown>;
             return {
               type: 'tool_use' as const,
-              id: String(fc.name), // Gemini uses name as id
+              id: `${fc.name}_${index}`, // Generate unique ID to handle multiple calls to same tool
               name: String(fc.name),
               input: (fc.args as Record<string, unknown>) ?? {},
             };
@@ -208,7 +208,7 @@ export class GeminiTransformer implements ProviderTransformer {
     const content = (candidate.content as Record<string, unknown>) ?? {};
     const parts = (content.parts as Array<Record<string, unknown>>) ?? [];
 
-    const contentBlocks: ContentBlock[] = parts.map((part) => {
+    const contentBlocks: ContentBlock[] = parts.map((part, index) => {
       if (part.text != null) {
         return { type: 'text', text: String(part.text) };
       }
@@ -216,7 +216,7 @@ export class GeminiTransformer implements ProviderTransformer {
         const fc = part.functionCall as Record<string, unknown>;
         return {
           type: 'tool_use',
-          id: String(fc.name),
+          id: `${fc.name}_${index}`, // Generate unique ID to handle multiple calls to same tool
           name: String(fc.name),
           input: (fc.args as Record<string, unknown>) ?? {},
         };
@@ -310,7 +310,8 @@ export class GeminiTransformer implements ProviderTransformer {
     const content = (candidate.content as Record<string, unknown>) ?? {};
     const parts = (content.parts as Array<Record<string, unknown>>) ?? [];
 
-    for (const part of parts) {
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
       if (part.text != null) {
         return { type: 'content_delta', delta: { text: String(part.text) } };
       }
@@ -319,7 +320,7 @@ export class GeminiTransformer implements ProviderTransformer {
         return {
           type: 'tool_use_delta',
           delta: {
-            toolUseId: String(fc.name),
+            toolUseId: `${fc.name}_${i}`, // Generate unique ID to handle multiple calls to same tool
             toolName: String(fc.name),
             inputJson: JSON.stringify(fc.args ?? {}),
           },

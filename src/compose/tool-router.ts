@@ -6,6 +6,8 @@ import type {
   ScopedLogger,
 } from '../core/types.js';
 import { PipelineError } from '../core/types.js';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
  * Tool handler configuration: either a provider call or a local function.
@@ -148,6 +150,44 @@ export class ToolRouterComposer {
   }
 
   /**
+   * Validate that a handler path is safe to import.
+   * Restricts to relative paths starting with ./ or ../ to prevent arbitrary code execution.
+   * @param handlerPath The handler path from configuration
+   * @throws {PipelineError} If the path is invalid or unsafe
+   */
+  private validateHandlerPath(handlerPath: string): void {
+    // Must be a relative path starting with ./ or ../
+    if (!handlerPath.startsWith('./') && !handlerPath.startsWith('../')) {
+      throw new PipelineError(
+        `Handler path must be a relative path starting with ./ or ../: ${handlerPath}`,
+        'invalid_request',
+        'tool-router',
+        500,
+        false
+      );
+    }
+
+    // Prevent path traversal attacks - resolve and check it stays within workspace
+    const resolvedPath = path.resolve(process.cwd(), handlerPath);
+    const workspaceRoot = process.cwd();
+
+    if (!resolvedPath.startsWith(workspaceRoot)) {
+      throw new PipelineError(
+        `Handler path escapes workspace directory: ${handlerPath}`,
+        'invalid_request',
+        'tool-router',
+        500,
+        false
+      );
+    }
+
+    this.logger.debug('Handler path validated', {
+      handlerPath,
+      resolvedPath,
+    });
+  }
+
+  /**
    * Execute a single tool call.
    */
   private async executeToolCall(
@@ -179,13 +219,16 @@ export class ToolRouterComposer {
     }
 
     if (handler.handler) {
+      // Validate handler path before importing
+      this.validateHandlerPath(handler.handler);
+
       // Load and execute local handler
       this.logger.debug('Executing local handler', {
         tool: toolCall.name,
         handler: handler.handler,
       });
 
-      // Dynamic import of the handler
+      // Dynamic import of the handler (path validated above)
       const handlerModule = await import(handler.handler);
       const handlerFn = handlerModule.default || handlerModule[toolCall.name];
 
