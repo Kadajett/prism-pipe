@@ -1,9 +1,9 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 // ── Sub-schemas ──
 
 export const CorsConfigSchema = z.object({
-  origin: z.union([z.string(), z.array(z.string())]).default('*'),
+  origin: z.union([z.string(), z.array(z.string())]).default("*"),
   credentials: z.boolean().default(false),
 });
 export type CorsConfig = z.infer<typeof CorsConfigSchema>;
@@ -34,19 +34,19 @@ export type PipelineStepConfig = z.infer<typeof PipelineStepConfigSchema>;
 export const RateLimitConfigSchema = z.object({
   windowMs: z.number().positive().default(60_000),
   maxRequests: z.number().positive().default(60),
-  keyBy: z.enum(['ip', 'apiKey', 'user']).default('ip'),
+  keyBy: z.enum(["ip", "apiKey", "user"]).default("ip"),
 });
 export type RateLimitConfig = z.infer<typeof RateLimitConfigSchema>;
 
 export const LoggingConfigSchema = z.object({
-  level: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
-  output: z.enum(['stdout', 'jsonl', 'both']).default('stdout'),
+  level: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
+  output: z.enum(["stdout", "jsonl", "both"]).default("stdout"),
   jsonlPath: z.string().optional(),
 });
 export type LoggingConfig = z.infer<typeof LoggingConfigSchema>;
 
 export const StoreConfigSchema = z.object({
-  type: z.enum(['sqlite', 'memory']).default('memory'),
+  type: z.enum(["sqlite", "memory"]).default("memory"),
   path: z.string().optional(),
 });
 export type StoreConfig = z.infer<typeof StoreConfigSchema>;
@@ -55,7 +55,7 @@ export type StoreConfig = z.infer<typeof StoreConfigSchema>;
 
 const ServerConfigSchema = z.object({
   port: z.number().int().min(1).max(65535).default(3000),
-  host: z.string().default('0.0.0.0'),
+  host: z.string().default("0.0.0.0"),
   cors: z.union([z.boolean(), CorsConfigSchema]).default(true),
 });
 
@@ -84,12 +84,8 @@ export type ResolvedConfig = Readonly<PrismPipeConfig>;
 export function validateConfig(raw: unknown): ResolvedConfig {
   const result = PrismPipeConfigSchema.safeParse(raw);
   if (!result.success) {
-    const messages = result.error.issues.map(
-      (i) => `  ${i.path.join('.')}: ${i.message}`
-    );
-    throw new Error(
-      `Invalid configuration:\n${messages.join('\n')}`
-    );
+    const messages = result.error.issues.map((i) => `  ${i.path.join(".")}: ${i.message}`);
+    throw new Error(`Invalid configuration:\n${messages.join("\n")}`);
   }
   return Object.freeze(result.data) as ResolvedConfig;
 }

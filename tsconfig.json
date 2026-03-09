@@ -13,7 +13,18 @@
     "declarationMap": true,
     "sourceMap": true,
     "resolveJsonModule": true,
-    "types": ["node"]
+    "paths": {
+      "@core/*": ["./src/core/*"],
+      "@server/*": ["./src/server/*"],
+      "@proxy/*": ["./src/proxy/*"],
+      "@config/*": ["./src/config/*"],
+      "@rate-limit/*": ["./src/rate-limit/*"],
+      "@fallback/*": ["./src/fallback/*"],
+      "@logging/*": ["./src/logging/*"],
+      "@store/*": ["./src/store/*"],
+      "@middleware/*": ["./src/middleware/*"],
+      "@cli/*": ["./src/cli/*"]
+    }
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist"]
