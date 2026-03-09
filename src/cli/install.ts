@@ -36,7 +36,23 @@ function getTemplatePath(): string {
   );
 }
 
+function validateSystemdValue(value: string, name: string): void {
+  // Allow alphanumeric, dash, underscore, dot, forward slash for paths/users
+  // Disallow special shell characters that could enable command injection
+  if (!/^[a-zA-Z0-9._\-\/]+$/.test(value)) {
+    throw new Error(
+      `Invalid ${name}: must contain only alphanumeric characters and ._-/ (got: "${value}")`
+    );
+  }
+}
+
 function renderTemplate(options: InstallOptions): string {
+  // Validate all user inputs to prevent command injection
+  validateSystemdValue(options.user, 'user');
+  validateSystemdValue(options.workingDir, 'working directory');
+  validateSystemdValue(options.envFile, 'env file path');
+  validateSystemdValue(options.restartPolicy, 'restart policy');
+
   const template = readFileSync(getTemplatePath(), 'utf-8');
   return template
     .replaceAll('{{USER}}', options.user)

@@ -33,7 +33,7 @@ function parseEvent(event: APIGatewayProxyEventV2): LambdaRequest {
     path: event.rawPath || '/',
     headers: (event.headers || {}) as Record<string, string>,
     body: event.body || null,
-    queryStringParameters: (event.queryStringParameters || null) as Record<string, string> | null,
+    queryStringParameters: event.queryStringParameters || null,
   };
 }
 

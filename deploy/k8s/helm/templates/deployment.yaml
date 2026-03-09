@@ -37,6 +37,7 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ include "prism-pipe.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          workingDir: /app
           ports:
             - name: http
               containerPort: {{ .Values.config.port | default 3000 }}
