@@ -1,48 +1,59 @@
-/** Canonical request format — provider-agnostic representation of an LLM API call. */
-export interface ContentBlock {
-  type: "text" | "image" | "tool_use" | "tool_result";
-  text?: string;
-  data?: string;
-  mediaType?: string;
-  toolUseId?: string;
-  toolName?: string;
-  input?: unknown;
-  content?: string;
-}
-
-export interface Message {
-  role: "system" | "user" | "assistant" | "tool";
-  content: string | ContentBlock[];
-}
+/**
+ * Canonical data types that flow through the entire system.
+ * All providers normalize to/from these types.
+ */
 
 export interface CanonicalRequest {
-  provider: string;
   model: string;
-  messages: Message[];
-  stream: boolean;
-  temperature?: number;
-  maxTokens?: number;
-  topP?: number;
-  stop?: string[];
-  metadata?: Record<string, unknown>;
+  systemPrompt?: string;
+  messages: CanonicalMessage[];
+  params: {
+    temperature?: number;
+    maxOutputTokens?: number;
+    topP?: number;
+    topK?: number;
+    stop?: string[];
+    stream?: boolean;
+    responseFormat?: { type: 'json_object' | 'text' };
+  };
+  providerExtensions?: Record<string, unknown>;
+}
+
+export interface CanonicalMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: ContentBlock[];
+  toolCalls?: ToolCall[];
+  toolCallId?: string;
+}
+
+export type ContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; source: { type: 'base64' | 'url'; data: string; mediaType?: string } }
+  | { type: 'tool_use'; id: string; name: string; input: unknown }
+  | { type: 'tool_result'; toolUseId: string; content: ContentBlock[] };
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  input: unknown;
 }
 
 export interface CanonicalResponse {
-  provider: string;
-  model: string;
+  id: string;
   content: ContentBlock[];
+  stopReason: 'stop' | 'max_tokens' | 'tool_use' | 'content_filter' | 'error';
   usage: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
+    inputTokens: number;
+    outputTokens: number;
   };
-  finishReason: string;
-  metadata?: Record<string, unknown>;
+  model: string;
+  provider: string;
+  latencyMs: number;
 }
 
-export interface StreamChunk {
-  type: "content" | "usage" | "done" | "error";
-  content?: ContentBlock;
-  usage?: CanonicalResponse["usage"];
-  error?: string;
+export interface CanonicalStreamChunk {
+  type: 'content_delta' | 'usage' | 'done' | 'error';
+  delta?: { text: string };
+  usage?: { inputTokens: number; outputTokens: number };
+  error?: { message: string; code: string };
 }
