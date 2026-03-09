@@ -37,20 +37,18 @@ requestTimeout: 120000
 #     providers: [anthropic]
 #     systemPrompt: "Think step by step."
 
-<<<<<<< HEAD
-  # Example: Anthropic-first route with system prompt
-  # - path: /v1/smart
-  #   providers:
-  #     - anthropic
-  #     - openai
-  #   systemPrompt: "You are a helpful AI assistant."
-  #   pipeline:
-  #     - log-request
-  #     - inject-system
-  #     - transform-format
-=======
+# Example: Anthropic-first route with system prompt
+#   - path: /v1/smart
+#     providers:
+#       - anthropic
+#       - openai
+#     systemPrompt: "You are a helpful AI assistant."
+#     pipeline:
+#       - log-request
+#       - inject-system
+#       - transform-format
+
 # Rate limiting — set RATE_LIMIT_RPM env var (default: 60 req/min)
 # Auth — set PRISM_API_KEYS env var (comma-separated) to enable
 # Store — defaults to SQLite at ./data/prism-pipe.db
 #   Set STORE_TYPE=memory for in-memory (testing/edge)
->>>>>>> 549e39d (feat: MVP integration — end-to-end proxy with zero-config npx start (#10))

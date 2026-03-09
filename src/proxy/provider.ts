@@ -48,7 +48,8 @@ export async function callProvider(opts: ProviderCallOptions): Promise<ProviderC
   const { providerConfig, transformer, body, timeout } = opts;
   const start = Date.now();
 
-  const url = `${providerConfig.baseUrl}/v1/chat/completions`;
+  const path = transformer.provider === 'anthropic' ? '/v1/messages' : '/v1/chat/completions';
+  const url = `${providerConfig.baseUrl}${path}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };

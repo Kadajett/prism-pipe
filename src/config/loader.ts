@@ -7,8 +7,14 @@ import { DEFAULT_CONFIG } from './defaults.js';
  * Interpolate ${VAR} references with environment variables.
  */
 function interpolateEnv(value: string): string {
-  return value.replace(/\$\{([^}]+)\}/g, (_, varName) => {
-    return process.env[varName.trim()] ?? '';
+  return value.replace(/\$\{([^}]+)\}/g, (match, varName) => {
+    const resolved = process.env[varName.trim()];
+    if (resolved === undefined) {
+      throw new Error(
+        `Environment variable '${varName.trim()}' is not set (referenced as ${match} in config)`
+      );
+    }
+    return resolved;
   });
 }
 
@@ -63,6 +69,7 @@ export function loadConfig(configPath?: string): ResolvedConfig {
         name,
         baseUrl: String(p.baseUrl ?? p.base_url ?? ''),
         apiKey: String(p.apiKey ?? p.api_key ?? ''),
+        format: p.format as string | undefined,
         models: p.models as Record<string, string> | undefined,
         defaultModel: p.defaultModel as string | undefined,
         timeout: p.timeout ? Number(p.timeout) : undefined,

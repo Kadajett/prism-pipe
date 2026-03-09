@@ -38,6 +38,19 @@ function detectClientFormat(body: Record<string, unknown>): string {
   return 'openai';
 }
 
+/**
+ * Resolve the API format for a provider config.
+ * Uses explicit `format` field if set, otherwise infers from baseUrl.
+ */
+function resolveProviderFormat(provider: { format?: string; baseUrl: string; name: string }): string {
+  if (provider.format) return provider.format;
+  if (provider.baseUrl.includes('anthropic')) return 'anthropic';
+  if (provider.baseUrl.includes('openai')) return 'openai';
+  // Fall back to provider name if it matches a known format
+  if (provider.name === 'openai' || provider.name === 'anthropic') return provider.name;
+  return 'openai'; // default
+}
+
 export function setupRoutes(app: Express, opts: RouterOptions) {
   const { config, pipeline, transformRegistry } = opts;
 
@@ -64,12 +77,16 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
 
         const providers = providerNames
           .filter((name) => config.providers[name])
-          .map((name) => ({
-            config: config.providers[name],
-            transformer: transformRegistry.has(name)
-              ? transformRegistry.get(name)
-              : clientTransformer,
-          }));
+          .map((name) => {
+            const providerCfg = config.providers[name];
+            const format = resolveProviderFormat(providerCfg);
+            return {
+              config: providerCfg,
+              transformer: transformRegistry.has(format)
+                ? transformRegistry.get(format)
+                : clientTransformer,
+            };
+          });
 
         // Determine target provider format
         const primaryProvider = providers[0];

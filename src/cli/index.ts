@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 /** CLI entry point — parse commands and dispatch. */
 export function runCli(argv: string[] = process.argv.slice(2)): void {
   const command = argv[0] ?? "start";
@@ -44,10 +43,3 @@ Options:
 `.trim(),
   );
 }
-=======
-#!/usr/bin/env node
-
-// CLI entry point — just boots the server
-// Future: add subcommands (config, migrate, install --systemd)
-import '../index.js';
->>>>>>> 549e39d (feat: MVP integration — end-to-end proxy with zero-config npx start (#10))
