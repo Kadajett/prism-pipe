@@ -140,6 +140,7 @@ export interface ProviderConfig {
   name: string;
   baseUrl: string;
   apiKey: string;
+  format?: string; // e.g. 'openai' | 'anthropic' — used to resolve the correct transformer
   models?: Record<string, string>;
   defaultModel?: string;
   timeout?: number;
