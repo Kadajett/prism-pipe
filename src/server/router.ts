@@ -8,6 +8,14 @@ import { executeFallbackChain } from '../fallback/chain.js';
 import { writeSSEStream } from '../proxy/stream.js';
 import type { TransformRegistry } from '../proxy/transform-registry.js';
 
+/**
+ * Infer the provider format from baseUrl when no explicit format is configured.
+ */
+function inferProviderFormat(baseUrl: string): string {
+  if (baseUrl.includes('anthropic')) return 'anthropic';
+  return 'openai'; // Default to OpenAI-compatible format
+}
+
 export interface RouterOptions {
   config: ResolvedConfig;
   pipeline: PipelineEngine;
@@ -64,12 +72,17 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
 
         const providers = providerNames
           .filter((name) => config.providers[name])
-          .map((name) => ({
-            config: config.providers[name],
-            transformer: transformRegistry.has(name)
-              ? transformRegistry.get(name)
-              : clientTransformer,
-          }));
+          .map((name) => {
+            const providerConf = config.providers[name];
+            // Resolve transformer by provider format, inferring from baseUrl if not explicit
+            const format = providerConf.format ?? inferProviderFormat(providerConf.baseUrl);
+            return {
+              config: providerConf,
+              transformer: transformRegistry.has(format)
+                ? transformRegistry.get(format)
+                : clientTransformer,
+            };
+          });
 
         // Determine target provider format
         const primaryProvider = providers[0];
