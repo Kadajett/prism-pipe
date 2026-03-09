@@ -3,6 +3,7 @@ import type { TokenBucket } from '../rate-limit/token-bucket.js';
 
 /**
  * Express middleware that enforces rate limiting via a TokenBucket.
+ * Rejects requests without an identifiable IP to prevent shared-bucket abuse.
  */
 export function createRateLimitMiddleware(bucket: TokenBucket) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -12,7 +13,19 @@ export function createRateLimitMiddleware(bucket: TokenBucket) {
       return;
     }
 
-    const key = `ip:${req.ip ?? req.socket.remoteAddress ?? 'unknown'}`;
+    const ip = req.ip ?? req.socket.remoteAddress;
+    if (!ip) {
+      res.status(400).json({
+        error: {
+          message: 'Unable to identify client IP for rate limiting',
+          type: 'request_error',
+          code: 'missing_client_ip',
+        },
+      });
+      return;
+    }
+
+    const key = `ip:${ip}`;
     const result = await bucket.check(key);
 
     res.setHeader('X-RateLimit-Limit', String(result.limit));
