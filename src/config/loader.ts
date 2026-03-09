@@ -7,10 +7,13 @@ import { DEFAULT_CONFIG } from './defaults.js';
  * Interpolate ${VAR} references with environment variables.
  */
 function interpolateEnv(value: string): string {
-  return value.replace(/\$\{([^}]+)\}/g, (match, varName) => {
+  return value.replace(/\$\{([^}]+)\}/g, (_, varName) => {
     const resolved = process.env[varName.trim()];
     if (resolved === undefined) {
-      throw new Error(`Missing environment variable: ${varName.trim()} (referenced as ${match})`);
+      throw new Error(
+        `Environment variable "\${${varName.trim()}}" is not defined. ` +
+          'Set it or remove the reference from config.'
+      );
     }
     return resolved;
   });
