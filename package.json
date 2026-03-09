@@ -23,14 +23,6 @@
     "test": "vitest",
     "test:run": "vitest run"
   },
-<<<<<<< HEAD
-  "keywords": ["ai", "proxy", "rate-limiting", "fallback", "multi-ip"],
-  "license": "MIT",
-  "dependencies": {
-    "express": "^4.21.2",
-    "minimist": "^1.2.8",
-    "ulid": "^2.3.0",
-=======
   "keywords": [
     "ai",
     "proxy",
@@ -43,34 +35,19 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "better-sqlite3": "^12.6.2",
     "express": "^5.2.1",
     "pino": "^10.3.1",
     "pino-pretty": "^13.0.0",
     "ulid": "^3.0.2",
->>>>>>> 549e39d (feat: MVP integration — end-to-end proxy with zero-config npx start (#10))
-    "yaml": "^2.8.2",
-    "zod": "^4.3.6"
+    "yaml": "^2.8.2"
   },
   "devDependencies": {
-<<<<<<< HEAD
-    "@biomejs/biome": "^1.9.4",
-    "@types/express": "^5.0.0",
-    "@types/minimist": "^1.2.5",
-    "@types/node": "^22.10.5",
-    "@vitest/coverage-v8": "^2.1.8",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
-=======
     "@biomejs/biome": "^2.4.6",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.6",
     "@types/node": "^25.3.5",
     "msw": "^2.12.10",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
->>>>>>> 549e39d (feat: MVP integration — end-to-end proxy with zero-config npx start (#10))
   }
 }

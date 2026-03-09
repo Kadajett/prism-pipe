@@ -64,12 +64,16 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
 
         const providers = providerNames
           .filter((name) => config.providers[name])
-          .map((name) => ({
-            config: config.providers[name],
-            transformer: transformRegistry.has(name)
-              ? transformRegistry.get(name)
-              : clientTransformer,
-          }));
+          .map((name) => {
+            const providerCfg = config.providers[name];
+            const format = providerCfg.format ?? 'openai';
+            return {
+              config: providerCfg,
+              transformer: transformRegistry.has(format)
+                ? transformRegistry.get(format)
+                : clientTransformer,
+            };
+          });
 
         // Determine target provider format
         const primaryProvider = providers[0];

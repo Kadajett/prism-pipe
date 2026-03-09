@@ -4,11 +4,26 @@ import type { ResolvedConfig } from '../core/types.js';
 import { DEFAULT_CONFIG } from './defaults.js';
 
 /**
+ * Infer provider format from base URL or provider name.
+ */
+function inferProviderFormat(baseUrl: string, name: string): string {
+  if (baseUrl.includes('anthropic')) return 'anthropic';
+  if (baseUrl.includes('openai')) return 'openai';
+  if (name.includes('anthropic')) return 'anthropic';
+  return 'openai'; // Default to OpenAI-compatible format
+}
+
+/**
  * Interpolate ${VAR} references with environment variables.
+ * Throws if a referenced env var is not defined.
  */
 function interpolateEnv(value: string): string {
   return value.replace(/\$\{([^}]+)\}/g, (_, varName) => {
-    return process.env[varName.trim()] ?? '';
+    const resolved = process.env[varName.trim()];
+    if (resolved === undefined) {
+      throw new Error(`Environment variable \${${varName.trim()}} is not defined. Check your .env file or environment.`);
+    }
+    return resolved;
   });
 }
 
@@ -59,10 +74,12 @@ export function loadConfig(configPath?: string): ResolvedConfig {
   if (rawConfig.providers && typeof rawConfig.providers === 'object') {
     for (const [name, value] of Object.entries(rawConfig.providers as Record<string, unknown>)) {
       const p = value as Record<string, unknown>;
+      const baseUrl = String(p.baseUrl ?? p.base_url ?? '');
       config.providers[name] = {
         name,
-        baseUrl: String(p.baseUrl ?? p.base_url ?? ''),
+        baseUrl,
         apiKey: String(p.apiKey ?? p.api_key ?? ''),
+        format: String(p.format ?? p.type ?? inferProviderFormat(baseUrl, name)),
         models: p.models as Record<string, string> | undefined,
         defaultModel: p.defaultModel as string | undefined,
         timeout: p.timeout ? Number(p.timeout) : undefined,
@@ -77,6 +94,7 @@ export function loadConfig(configPath?: string): ResolvedConfig {
         name: 'openai',
         baseUrl: 'https://api.openai.com',
         apiKey: process.env.OPENAI_API_KEY,
+        format: 'openai',
       };
     }
     if (process.env.ANTHROPIC_API_KEY) {
@@ -84,6 +102,7 @@ export function loadConfig(configPath?: string): ResolvedConfig {
         name: 'anthropic',
         baseUrl: 'https://api.anthropic.com',
         apiKey: process.env.ANTHROPIC_API_KEY,
+        format: 'anthropic',
       };
     }
   }
