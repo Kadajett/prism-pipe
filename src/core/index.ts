@@ -1,6 +1,19 @@
 export { PipelineContext, type PipelineContextOptions } from './context.js';
 export { type Middleware, PipelineEngine } from './pipeline.js';
 export { createTimeoutBudget, type TimeoutBudget } from './timeout.js';
+export {
+  type CallProviderFn,
+  type Composer,
+  type CompositionResult,
+  type CompositionStep,
+  type ErrorPolicy,
+  type StepResult,
+  clearComposers,
+  getComposer,
+  hasComposer,
+  listComposers,
+  registerComposer,
+} from './composer.js';
 export type {
   CanonicalMessage,
   CanonicalRequest,
