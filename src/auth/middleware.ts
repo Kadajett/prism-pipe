@@ -4,6 +4,7 @@
  * Falls back to legacy API key auth if no TenantManager.
  */
 
+import { timingSafeEqual } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import type { TenantContext, TenantManager } from './tenant.js';
 
@@ -93,7 +94,7 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
     const authHeader = req.headers.authorization;
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
 
-    if (adminKey && token === adminKey) {
+    if (adminKey && token && timingSafeCompare(token, adminKey)) {
       next();
       return;
     }
@@ -104,4 +105,18 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
     return;
   }
   next();
+}
+
+/**
+ * Constant-time string comparison to prevent timing attacks.
+ */
+function timingSafeCompare(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    // Compare bufA against itself to keep constant time, then return false
+    timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return timingSafeEqual(bufA, bufB);
 }

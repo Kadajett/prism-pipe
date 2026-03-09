@@ -113,8 +113,9 @@ export function setupAdminRoutes(app: Express, opts: AdminRouteOptions): void {
   // GET /admin/health — provider status + circuit breakers
   app.get('/admin/health', (_req: Request, res: Response) => {
     const config = getConfig();
+    const allBreakers = circuitBreakers?.all();
     const providers = Object.entries(config.providers).map(([name, p]) => {
-      const cb = circuitBreakers?.get(name);
+      const cb = allBreakers?.get(name);
       return {
         name,
         baseUrl: p.baseUrl,
@@ -142,8 +143,9 @@ export function setupAdminRoutes(app: Express, opts: AdminRouteOptions): void {
   // GET /admin/providers — provider list with status
   app.get('/admin/providers', (_req: Request, res: Response) => {
     const config = getConfig();
+    const breakers = circuitBreakers?.all();
     const providers = Object.entries(config.providers).map(([name, p]) => {
-      const cb = circuitBreakers?.get(name);
+      const cb = breakers?.get(name);
       return {
         name,
         baseUrl: p.baseUrl,
