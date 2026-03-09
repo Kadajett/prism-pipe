@@ -66,7 +66,8 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions) {
       })
     }
 
-    // Attach tenant context (for future multi-tenant support)
+    // Attach API key and tenant context (for rate limiting and future multi-tenant support)
+    ;(req as any).apiKey = providedKey
     ;(req as any).tenantId = "default"
 
     next()

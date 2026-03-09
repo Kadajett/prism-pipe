@@ -34,7 +34,9 @@ export function getRateLimitScope(req: Request): string {
  * Checks token bucket before allowing request through
  * Adds X-RateLimit-* headers to all responses
  */
-export function createRateLimitMiddleware(options: RateLimitMiddlewareOptions) {
+export function createRateLimitMiddleware(
+  options: RateLimitMiddlewareOptions,
+): (req: Request, res: Response, next: NextFunction) => void | Promise<void> {
   const { config, store } = options
 
   // If rate limiting is disabled, just pass through
@@ -78,13 +80,14 @@ export function createRateLimitMiddleware(options: RateLimitMiddlewareOptions) {
           result.retryAfter ? Math.ceil(result.retryAfter) : undefined,
         )
 
-        return res.status(429).json({
+        res.status(429).json({
           error: {
             type: "rate_limit_error",
             message: error.message,
             retryAfter: result.retryAfter,
           },
         })
+        return
       }
 
       next()
