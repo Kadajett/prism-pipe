@@ -1,0 +1,58 @@
+# ─── Prism-Pipe Configuration ───
+# All fields are optional. Defaults are shown below.
+# ENV vars override YAML: PRISM_SERVER_PORT=4000
+# Use ${VAR_NAME} to reference environment variables in values.
+
+server:
+  port: 3000                  # Listen port
+  host: '0.0.0.0'             # Bind address
+  cors: true                  # true | false | { origin: '*', credentials: false }
+
+# ─── Providers ───
+# Configure one or more AI providers. Each key is a name you reference elsewhere.
+providers:
+  openai:
+    baseUrl: https://api.openai.com/v1
+    apiKey: ${OPENAI_API_KEY}
+    models:
+      - gpt-4o
+      - gpt-4o-mini
+    timeout:
+      connect: 5000            # ms
+      firstByte: 15000
+      total: 120000
+    # fallback: anthropic      # Name of another provider to fall back to
+
+  # anthropic:
+  #   baseUrl: https://api.anthropic.com/v1
+  #   apiKey: ${ANTHROPIC_API_KEY}
+  #   models: [claude-sonnet-4-20250514]
+
+# ─── Pipeline ───
+# Ordered list of middleware steps applied to each request.
+pipeline: []
+  # - name: rate-limiter
+  #   type: rateLimit
+  #   config:
+  #     windowMs: 60000
+  #     maxRequests: 60
+  # - name: logger
+  #   type: logging
+
+# ─── Rate Limits ───
+# Global rate limiting (applied before pipeline steps).
+# rateLimits:
+#   windowMs: 60000
+#   maxRequests: 60
+#   keyBy: ip                  # ip | apiKey | user
+
+# ─── Logging ───
+logging:
+  level: info                  # trace | debug | info | warn | error | fatal
+  output: stdout               # stdout | jsonl | both
+  # jsonlPath: ./logs/prism-pipe.jsonl
+
+# ─── Store ───
+store:
+  type: memory                 # memory | sqlite
+  # path: ./data/prism-pipe.db  # Required for sqlite
