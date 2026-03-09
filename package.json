@@ -14,17 +14,29 @@
     "test": "vitest",
     "test:run": "vitest run"
   },
-  "keywords": ["ai", "proxy", "rate-limiting", "fallback", "multi-ip"],
+  "keywords": [
+    "ai",
+    "proxy",
+    "rate-limiting",
+    "fallback",
+    "multi-ip"
+  ],
   "license": "MIT",
   "dependencies": {
-    "pino": "^9.0.0",
-    "better-sqlite3": "^11.0.0"
+    "express": "^5.2.1",
+    "minimist": "^1.2.8",
+    "pino": "^10.3.1",
+    "ulid": "^3.0.2",
+    "yaml": "^2.8.2"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.0",
-    "@types/node": "^20.0.0",
-    "typescript": "^5.0.0",
-    "vitest": "^1.0.0",
-    "tsx": "^4.0.0"
+    "@biomejs/biome": "^2.4.6",
+    "@types/express": "^5.0.6",
+    "@types/minimist": "^1.2.5",
+    "@types/node": "^25.3.5",
+    "msw": "^2.12.10",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
   }
 }
