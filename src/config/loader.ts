@@ -8,7 +8,12 @@ import { DEFAULT_CONFIG } from './defaults.js';
  */
 function interpolateEnv(value: string): string {
 	return value.replace(/\$\{([^}]+)\}/g, (_, varName) => {
-		return process.env[varName.trim()] ?? '';
+		const name = varName.trim();
+		const val = process.env[name];
+		if (val === undefined) {
+			throw new Error(`Missing required environment variable: ${name}`);
+		}
+		return val;
 	});
 }
 
@@ -61,6 +66,7 @@ export function loadConfig(configPath?: string): ResolvedConfig {
 			const p = value as Record<string, unknown>;
 			config.providers[name] = {
 				name,
+				type: p.type ? String(p.type) : undefined,
 				baseUrl: String(p.baseUrl ?? p.base_url ?? ''),
 				apiKey: String(p.apiKey ?? p.api_key ?? ''),
 				models: p.models as Record<string, string> | undefined,
@@ -98,5 +104,38 @@ export function loadConfig(configPath?: string): ResolvedConfig {
 		}));
 	}
 
+	// Basic validation
+	validateConfig(config);
+
 	return config;
+}
+
+function validateConfig(config: ResolvedConfig): void {
+	if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) {
+		throw new Error(`Invalid port: ${config.port}. Must be an integer between 1 and 65535.`);
+	}
+
+	const validLogLevels = ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'];
+	if (!validLogLevels.includes(config.logLevel)) {
+		throw new Error(`Invalid logLevel: "${config.logLevel}". Must be one of: ${validLogLevels.join(', ')}`);
+	}
+
+	if (config.requestTimeout < 1000 || config.requestTimeout > 600000) {
+		throw new Error(`Invalid requestTimeout: ${config.requestTimeout}. Must be between 1000ms and 600000ms.`);
+	}
+
+	for (const [name, provider] of Object.entries(config.providers)) {
+		if (!provider.baseUrl) {
+			throw new Error(`Provider "${name}" is missing baseUrl.`);
+		}
+		if (!provider.apiKey) {
+			throw new Error(`Provider "${name}" is missing apiKey.`);
+		}
+	}
+
+	for (const route of config.routes) {
+		if (!route.path || !route.path.startsWith('/')) {
+			throw new Error(`Route path "${route.path}" must start with "/".`);
+		}
+	}
 }

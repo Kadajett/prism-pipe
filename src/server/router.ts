@@ -17,19 +17,39 @@ export interface RouterOptions {
 
 /**
  * Detect what format the client is sending (openai or anthropic).
+ * Priority: explicit header > structural detection > default.
  */
-function detectClientFormat(body: Record<string, unknown>): string {
-	// Anthropic requests have top-level 'system' and content blocks
-	if (body.system !== undefined || (body.messages && !body.model?.toString().startsWith('gpt'))) {
-		// Check for Anthropic-style content blocks
-		const messages = body.messages as Array<Record<string, unknown>> | undefined;
-		if (messages?.some((m) => Array.isArray(m.content) && (m.content as Array<Record<string, unknown>>).some(
-			(b) => b.type === 'tool_use' || b.type === 'tool_result',
-		))) {
-			return 'anthropic';
-		}
+function detectClientFormat(body: Record<string, unknown>, req: Request): string {
+	// 1. Explicit header takes priority
+	const explicitFormat = req.headers['x-prism-format'] as string | undefined;
+	if (explicitFormat && (explicitFormat === 'openai' || explicitFormat === 'anthropic')) {
+		return explicitFormat;
 	}
-	// Default to OpenAI format
+
+	// 2. Structural detection: Anthropic has top-level 'system' string and content block arrays
+	if (typeof body.system === 'string') {
+		return 'anthropic';
+	}
+
+	// Check for Anthropic-style content blocks (tool_use, tool_result, thinking)
+	const messages = body.messages as Array<Record<string, unknown>> | undefined;
+	if (messages?.some((m) => Array.isArray(m.content) && (m.content as Array<Record<string, unknown>>).some(
+		(b) => b.type === 'tool_use' || b.type === 'tool_result' || b.type === 'thinking',
+	))) {
+		return 'anthropic';
+	}
+
+	// 3. Default to OpenAI format
+	return 'openai';
+}
+
+/**
+ * Infer the provider format from its config, falling back to URL-based detection.
+ */
+function inferProviderFormat(provider: { name: string; baseUrl: string; type?: string }): string {
+	if (provider.type) return provider.type;
+	if (provider.baseUrl.includes('anthropic')) return 'anthropic';
+	if (provider.name === 'anthropic') return 'anthropic';
 	return 'openai';
 }
 
@@ -43,7 +63,7 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
 
 			try {
 				const body = req.body as Record<string, unknown>;
-				const clientFormat = detectClientFormat(body);
+				const clientFormat = detectClientFormat(body, req);
 				const clientTransformer = transformRegistry.get(clientFormat);
 
 				// Convert client request to canonical
@@ -60,10 +80,14 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
 
 				const providers = providerNames
 					.filter((name) => config.providers[name])
-					.map((name) => ({
-						config: config.providers[name],
-						transformer: transformRegistry.has(name) ? transformRegistry.get(name) : clientTransformer,
-					}));
+					.map((name) => {
+						const providerConfig = config.providers[name];
+						const format = inferProviderFormat(providerConfig);
+						const transformer = transformRegistry.has(format)
+							? transformRegistry.get(format)
+							: clientTransformer;
+						return { config: providerConfig, transformer };
+					});
 
 				// Determine target provider format
 				const primaryProvider = providers[0];

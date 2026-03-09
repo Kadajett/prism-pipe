@@ -8,6 +8,9 @@ import type {
 } from '../../core/types.js';
 import type { ProviderTransformer } from '../transform-registry.js';
 
+/** Default max_tokens for Anthropic when not specified. Anthropic requires this field. */
+const DEFAULT_ANTHROPIC_MAX_TOKENS = 4096;
+
 /**
  * Anthropic ↔ Canonical transformer.
  * Handles: top-level `system`, content blocks array, stop_reason → stopReason,
@@ -151,8 +154,9 @@ export class AnthropicTransformer implements ProviderTransformer {
 		// Feature degradation: strip unsupported content
 		const result: Record<string, unknown> = { model: req.model, messages };
 		if (req.systemPrompt) result.system = req.systemPrompt;
-		if (req.maxTokens != null) result.max_tokens = req.maxTokens;
-		else result.max_tokens = 4096; // Anthropic requires max_tokens
+		// Anthropic requires max_tokens. Use request value, or a sensible default.
+		// Modern models support much higher limits; callers should set maxTokens explicitly.
+		result.max_tokens = req.maxTokens ?? DEFAULT_ANTHROPIC_MAX_TOKENS;
 		if (req.temperature != null) result.temperature = req.temperature;
 		if (req.topP != null) result.top_p = req.topP;
 		if (req.stopSequences) result.stop_sequences = req.stopSequences;

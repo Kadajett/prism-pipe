@@ -140,6 +140,8 @@ export class PipelineError extends Error {
 
 export interface ProviderConfig {
 	name: string;
+	/** Provider type/format — e.g. 'openai', 'anthropic'. Used to resolve the correct transformer. */
+	type?: string;
 	baseUrl: string;
 	apiKey: string;
 	models?: Record<string, string>;
