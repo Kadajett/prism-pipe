@@ -1,4 +1,4 @@
-import type { Request, Response, NextFunction } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 
 /**
  * Auth middleware — validates that the request has a valid API key.
@@ -21,7 +21,11 @@ export function createAuthMiddleware(apiKeys?: string[]) {
     const authHeader = req.headers.authorization;
     if (!authHeader) {
       res.status(401).json({
-        error: { message: 'Missing Authorization header', type: 'auth_error', code: 'missing_api_key' },
+        error: {
+          message: 'Missing Authorization header',
+          type: 'auth_error',
+          code: 'missing_api_key',
+        },
       });
       return;
     }

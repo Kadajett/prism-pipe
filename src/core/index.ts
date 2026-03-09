@@ -1,34 +1,25 @@
-<<<<<<< HEAD
-/**
- * Core types and error system
- */
-
-export * from './types.js';
-export * from './errors.js';
-=======
-export { PipelineEngine, type Middleware } from './pipeline.js';
 export { PipelineContext, type PipelineContextOptions } from './context.js';
+export { type Middleware, PipelineEngine } from './pipeline.js';
 export { createTimeoutBudget, type TimeoutBudget } from './timeout.js';
 export type {
+  CanonicalMessage,
   CanonicalRequest,
   CanonicalResponse,
-  CanonicalMessage,
   CanonicalStreamChunk,
   ContentBlock,
-  TextBlock,
+  ErrorClass,
   ImageBlock,
-  ToolUseBlock,
-  ToolResultBlock,
-  ThinkingBlock,
-  ToolDefinition,
-  UsageInfo,
+  MetricsEmitter,
   ProviderCapabilities,
   ProviderConfig,
-  RouteConfig,
   ResolvedConfig,
+  RouteConfig,
   ScopedLogger,
-  MetricsEmitter,
-  ErrorClass,
+  TextBlock,
+  ThinkingBlock,
+  ToolDefinition,
+  ToolResultBlock,
+  ToolUseBlock,
+  UsageInfo,
 } from './types.js';
 export { PipelineError } from './types.js';
->>>>>>> 549e39d (feat: MVP integration — end-to-end proxy with zero-config npx start (#10))

@@ -1,20 +1,20 @@
-import { createApp, errorHandler } from './server/express.js';
-import { setupRoutes } from './server/router.js';
-import { createAuthMiddleware } from './server/auth.js';
-import { createRateLimitMiddleware } from './server/rate-limit.js';
+import pino from 'pino';
+import { loadConfig } from './config/loader.js';
 import { PipelineEngine } from './core/pipeline.js';
-import { TransformRegistry } from './proxy/transform-registry.js';
-import { OpenAITransformer } from './proxy/transforms/openai.js';
-import { AnthropicTransformer } from './proxy/transforms/anthropic.js';
+import type { ResolvedConfig } from './core/types.js';
 import { createLogMiddleware } from './middleware/log-request.js';
 import { createTransformMiddleware } from './middleware/transform-format.js';
-import { loadConfig } from './config/loader.js';
-import { SQLiteStore } from './store/sqlite.js';
-import { MemoryStore } from './store/memory.js';
+import { TransformRegistry } from './proxy/transform-registry.js';
+import { AnthropicTransformer } from './proxy/transforms/anthropic.js';
+import { OpenAITransformer } from './proxy/transforms/openai.js';
 import { TokenBucket } from './rate-limit/token-bucket.js';
+import { createAuthMiddleware } from './server/auth.js';
+import { createApp, errorHandler } from './server/express.js';
+import { createRateLimitMiddleware } from './server/rate-limit.js';
+import { setupRoutes } from './server/router.js';
 import type { Store } from './store/interface.js';
-import type { ResolvedConfig } from './core/types.js';
-import pino from 'pino';
+import { MemoryStore } from './store/memory.js';
+import { SQLiteStore } from './store/sqlite.js';
 
 // ── Load config ──
 const config: ResolvedConfig = loadConfig();
@@ -28,9 +28,10 @@ const logger = pino({
 });
 
 // ── Store ──
-const store: Store = process.env.STORE_TYPE === 'memory'
-  ? new MemoryStore()
-  : new SQLiteStore(process.env.STORE_PATH ?? './data/prism-pipe.db');
+const store: Store =
+  process.env.STORE_TYPE === 'memory'
+    ? new MemoryStore()
+    : new SQLiteStore(process.env.STORE_PATH ?? './data/prism-pipe.db');
 
 // ── Transform registry ──
 const transformRegistry = new TransformRegistry();
@@ -46,7 +47,9 @@ pipeline.use(createTransformMiddleware(transformRegistry));
 const app = createApp();
 
 // ── Auth middleware ──
-const apiKeys = process.env.PRISM_API_KEYS?.split(',').map((k) => k.trim()).filter(Boolean);
+const apiKeys = process.env.PRISM_API_KEYS?.split(',')
+  .map((k) => k.trim())
+  .filter(Boolean);
 app.use(createAuthMiddleware(apiKeys));
 
 // ── Rate limit middleware ──

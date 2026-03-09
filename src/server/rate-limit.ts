@@ -1,4 +1,4 @@
-import type { Request, Response, NextFunction } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import type { TokenBucket } from '../rate-limit/token-bucket.js';
 
 /**
