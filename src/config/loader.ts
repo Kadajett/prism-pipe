@@ -2,13 +2,18 @@ import { existsSync, readFileSync } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
 import type { ResolvedConfig } from '../core/types.js';
 import { DEFAULT_CONFIG } from './defaults.js';
+import { validateConfig } from './schema.js';
 
 /**
  * Interpolate ${VAR} references with environment variables.
  */
 function interpolateEnv(value: string): string {
   return value.replace(/\$\{([^}]+)\}/g, (_, varName) => {
-    return process.env[varName.trim()] ?? '';
+    const value = process.env[varName.trim()];
+    if (value === undefined) {
+      throw new Error(`Missing required environment variable: ${varName.trim()}`);
+    }
+    return value;
   });
 }
 
@@ -63,6 +68,7 @@ export function loadConfig(configPath?: string): ResolvedConfig {
         name,
         baseUrl: String(p.baseUrl ?? p.base_url ?? ''),
         apiKey: String(p.apiKey ?? p.api_key ?? ''),
+        format: p.format as string | undefined,
         models: p.models as Record<string, string> | undefined,
         defaultModel: p.defaultModel as string | undefined,
         timeout: p.timeout ? Number(p.timeout) : undefined,
@@ -98,5 +104,6 @@ export function loadConfig(configPath?: string): ResolvedConfig {
     }));
   }
 
+  validateConfig(config);
   return config;
 }

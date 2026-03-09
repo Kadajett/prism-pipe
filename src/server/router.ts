@@ -2,11 +2,23 @@ import type { Express, Request, Response } from 'express';
 import { PipelineContext } from '../core/context.js';
 import type { PipelineEngine } from '../core/pipeline.js';
 import { createTimeoutBudget } from '../core/timeout.js';
-import type { CanonicalRequest, ResolvedConfig } from '../core/types.js';
+import type { CanonicalRequest, ProviderConfig, ResolvedConfig } from '../core/types.js';
 import { PipelineError } from '../core/types.js';
 import { executeFallbackChain } from '../fallback/chain.js';
 import { writeSSEStream } from '../proxy/stream.js';
 import type { TransformRegistry } from '../proxy/transform-registry.js';
+
+/**
+ * Resolve the API format for a provider config.
+ * Uses explicit `format` field, falls back to baseUrl detection, then defaults to 'openai'.
+ */
+function resolveProviderFormat(provider: ProviderConfig): string {
+  if (provider.format) return provider.format;
+  if (provider.baseUrl.includes('anthropic')) return 'anthropic';
+  if (provider.baseUrl.includes('openai')) return 'openai';
+  // Default to openai-compatible format (most providers use it)
+  return 'openai';
+}
 
 export interface RouterOptions {
   config: ResolvedConfig;
@@ -16,24 +28,29 @@ export interface RouterOptions {
 
 /**
  * Detect what format the client is sending (openai or anthropic).
+ * Checks explicit header first, then structural cues.
  */
-function detectClientFormat(body: Record<string, unknown>): string {
-  // Anthropic requests have top-level 'system' and content blocks
-  if (body.system !== undefined || (body.messages && !body.model?.toString().startsWith('gpt'))) {
-    // Check for Anthropic-style content blocks
-    const messages = body.messages as Array<Record<string, unknown>> | undefined;
-    if (
-      messages?.some(
-        (m) =>
-          Array.isArray(m.content) &&
-          (m.content as Array<Record<string, unknown>>).some(
-            (b) => b.type === 'tool_use' || b.type === 'tool_result'
-          )
-      )
-    ) {
-      return 'anthropic';
-    }
+function detectClientFormat(body: Record<string, unknown>, headers?: Record<string, string | string[] | undefined>): string {
+  // Explicit header takes priority
+  const explicitFormat = headers?.['x-prism-format'];
+  if (typeof explicitFormat === 'string' && (explicitFormat === 'openai' || explicitFormat === 'anthropic')) {
+    return explicitFormat;
   }
+
+  // Anthropic structural cues: top-level `system` string, or content blocks with Anthropic-specific types
+  if (typeof body.system === 'string') return 'anthropic';
+
+  const messages = body.messages as Array<Record<string, unknown>> | undefined;
+  if (messages?.some(
+    (m) =>
+      Array.isArray(m.content) &&
+      (m.content as Array<Record<string, unknown>>).some(
+        (b) => b.type === 'tool_use' || b.type === 'tool_result'
+      )
+  )) {
+    return 'anthropic';
+  }
+
   // Default to OpenAI format
   return 'openai';
 }
@@ -48,7 +65,7 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
 
       try {
         const body = req.body as Record<string, unknown>;
-        const clientFormat = detectClientFormat(body);
+        const clientFormat = detectClientFormat(body, req.headers as Record<string, string | string[] | undefined>);
         const clientTransformer = transformRegistry.get(clientFormat);
 
         // Convert client request to canonical
@@ -64,12 +81,17 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
 
         const providers = providerNames
           .filter((name) => config.providers[name])
-          .map((name) => ({
-            config: config.providers[name],
-            transformer: transformRegistry.has(name)
-              ? transformRegistry.get(name)
-              : clientTransformer,
-          }));
+          .map((name) => {
+            const providerCfg = config.providers[name];
+            // Resolve transformer by provider format, not provider name
+            const format = resolveProviderFormat(providerCfg);
+            return {
+              config: providerCfg,
+              transformer: transformRegistry.has(format)
+                ? transformRegistry.get(format)
+                : clientTransformer,
+            };
+          });
 
         // Determine target provider format
         const primaryProvider = providers[0];

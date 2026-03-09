@@ -19,14 +19,17 @@ requestTimeout: 120000
 #   openai:
 #     baseUrl: https://api.openai.com
 #     apiKey: ${OPENAI_API_KEY}
+#     format: openai          # optional, auto-detected from baseUrl
 #     defaultModel: gpt-4o
 #   anthropic:
 #     baseUrl: https://api.anthropic.com
 #     apiKey: ${ANTHROPIC_API_KEY}
+#     format: anthropic       # optional, auto-detected from baseUrl
 #     defaultModel: claude-sonnet-4-20250514
 #   local:
 #     baseUrl: http://localhost:11434
 #     apiKey: ollama
+#     format: openai          # most local providers use OpenAI-compatible format
 
 # Routes — default route proxies /v1/chat/completions
 # routes:
@@ -37,20 +40,7 @@ requestTimeout: 120000
 #     providers: [anthropic]
 #     systemPrompt: "Think step by step."
 
-<<<<<<< HEAD
-  # Example: Anthropic-first route with system prompt
-  # - path: /v1/smart
-  #   providers:
-  #     - anthropic
-  #     - openai
-  #   systemPrompt: "You are a helpful AI assistant."
-  #   pipeline:
-  #     - log-request
-  #     - inject-system
-  #     - transform-format
-=======
 # Rate limiting — set RATE_LIMIT_RPM env var (default: 60 req/min)
 # Auth — set PRISM_API_KEYS env var (comma-separated) to enable
 # Store — defaults to SQLite at ./data/prism-pipe.db
 #   Set STORE_TYPE=memory for in-memory (testing/edge)
->>>>>>> 549e39d (feat: MVP integration — end-to-end proxy with zero-config npx start (#10))

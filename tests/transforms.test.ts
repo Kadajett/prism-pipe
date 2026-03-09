@@ -142,7 +142,7 @@ describe('AnthropicTransformer', () => {
 		};
 
 		const raw = t.fromCanonical(canonical) as Record<string, unknown>;
-		expect(raw.max_tokens).toBe(4096);
+		expect(raw.max_tokens).toBe(8192);
 	});
 
 	it('round-trips response', () => {

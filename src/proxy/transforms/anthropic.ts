@@ -151,8 +151,9 @@ export class AnthropicTransformer implements ProviderTransformer {
     // Feature degradation: strip unsupported content
     const result: Record<string, unknown> = { model: req.model, messages };
     if (req.systemPrompt) result.system = req.systemPrompt;
-    if (req.maxTokens != null) result.max_tokens = req.maxTokens;
-    else result.max_tokens = 4096; // Anthropic requires max_tokens
+    // Anthropic requires max_tokens. Use request value, or default to 8192.
+    // Note: newer Anthropic models support much higher limits (up to 128k).
+    result.max_tokens = req.maxTokens ?? 8192;
     if (req.temperature != null) result.temperature = req.temperature;
     if (req.topP != null) result.top_p = req.topP;
     if (req.stopSequences) result.stop_sequences = req.stopSequences;

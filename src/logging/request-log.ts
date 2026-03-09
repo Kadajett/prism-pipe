@@ -1,8 +1,8 @@
 import { appendFileSync, existsSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
-import type { Store } from '../store/interface';
-import type { RequestLogEntry } from '../store/interface';
-import type { ScopedLogger } from './interface';
+import type { Store } from '../store/interface.js';
+import type { RequestLogEntry } from '../store/interface.js';
+import type { ScopedLogger } from './interface.js';
 
 /**
  * Request logger configuration

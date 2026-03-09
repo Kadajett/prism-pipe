@@ -54,16 +54,13 @@ export function createRateLimitMiddleware(
     try {
       const scope = getRateLimitScope(req)
 
-      const bucket = new TokenBucket(
-        {
-          capacity,
-          refillRate,
-          scope,
-        },
+      const bucket = new TokenBucket({
+        capacity,
+        refillRate,
         store,
-      )
+      })
 
-      const result = await bucket.consume(1)
+      const result = await bucket.check(scope, 1)
 
       // Add rate limit headers to response
       res.setHeader("X-RateLimit-Limit", capacity.toString())
@@ -71,20 +68,20 @@ export function createRateLimitMiddleware(
       res.setHeader("X-RateLimit-Reset", Math.floor(result.resetAt / 1000).toString())
 
       if (!result.allowed) {
-        if (result.retryAfter) {
-          res.setHeader("Retry-After", Math.ceil(result.retryAfter).toString())
+        if (result.retryAfterMs) {
+          res.setHeader("Retry-After", Math.ceil(result.retryAfterMs).toString())
         }
 
         const error = new RateLimitError(
           "Rate limit exceeded",
-          result.retryAfter ? Math.ceil(result.retryAfter) : undefined,
+          result.retryAfterMs ? Math.ceil(result.retryAfterMs) : undefined,
         )
 
         res.status(429).json({
           error: {
             type: "rate_limit_error",
             message: error.message,
-            retryAfter: result.retryAfter,
+            retryAfter: result.retryAfterMs,
           },
         })
         return

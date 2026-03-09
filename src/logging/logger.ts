@@ -1,6 +1,6 @@
 import pino from 'pino';
 import type { Logger as PinoLogger } from 'pino';
-import type { LoggerConfig, ScopedLogger } from './interface';
+import type { LoggerConfig, ScopedLogger } from './interface.js';
 
 /**
  * Create a Pino logger with the given config

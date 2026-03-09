@@ -1,2 +1,2 @@
-export { FallbackChain } from "./chain.js";
-export { retryWithBackoff } from "./retry.js";
+export { executeFallbackChain } from './chain.js';
+export type { FallbackChainOptions } from './chain.js';

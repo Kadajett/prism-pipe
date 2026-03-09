@@ -140,6 +140,8 @@ export interface ProviderConfig {
   name: string;
   baseUrl: string;
   apiKey: string;
+  /** Provider format: 'openai' or 'anthropic'. Auto-detected from baseUrl if omitted. */
+  format?: string;
   models?: Record<string, string>;
   defaultModel?: string;
   timeout?: number;
