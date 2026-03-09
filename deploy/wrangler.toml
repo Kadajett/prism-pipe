@@ -1,0 +1,24 @@
+# Cloudflare Workers configuration template for prism-pipe
+# Copy this to your project root and customize.
+
+name = "prism-pipe"
+main = "dist/runtime/edge.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+# PRISM_API_KEYS = "key1,key2"
+
+# KV namespace for state/config
+# [[kv_namespaces]]
+# binding = "PRISM_KV"
+# id = "<your-kv-namespace-id>"
+
+# D1 database for structured data
+# [[d1_databases]]
+# binding = "PRISM_D1"
+# database_name = "prism-pipe"
+# database_id = "<your-d1-database-id>"
+
+# Secrets (set via `wrangler secret put`):
+#   wrangler secret put OPENAI_API_KEY
+#   wrangler secret put ANTHROPIC_API_KEY
