@@ -8,6 +8,7 @@ import {
   type ProviderStreamResult,
 } from '../proxy/provider.js';
 import type { ProviderTransformer } from '../proxy/transform-registry.js';
+import type { CircuitBreakerRegistry } from './circuit-breaker.js';
 
 export interface FallbackChainOptions {
   providers: Array<{
@@ -20,6 +21,8 @@ export interface FallbackChainOptions {
   log: ScopedLogger;
   maxRetries?: number;
   baseBackoffMs?: number;
+  /** Optional circuit breaker registry — tripped providers are skipped */
+  circuitBreakers?: CircuitBreakerRegistry;
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -33,36 +36,49 @@ async function sleep(ms: number): Promise<void> {
 export async function executeFallbackChain(
   opts: FallbackChainOptions
 ): Promise<ProviderCallResult | ProviderStreamResult> {
-  const { providers, body, stream, timeout, log, maxRetries = 2, baseBackoffMs = 500 } = opts;
+  const { providers, body, stream, timeout, log, maxRetries = 2, baseBackoffMs = 500, circuitBreakers } = opts;
   const errors: Array<{ provider: string; error: PipelineError }> = [];
 
   for (const { config, transformer } of providers) {
     if (!timeout.hasTime()) break;
 
+    // Skip tripped providers
+    if (circuitBreakers && !circuitBreakers.isAvailable(config.name)) {
+      log.warn(`Skipping provider ${config.name} — circuit breaker is open`);
+      continue;
+    }
+
+    const breaker = circuitBreakers?.get(config.name);
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (!timeout.hasTime()) break;
 
       try {
+        let result: ProviderCallResult | ProviderStreamResult;
         if (stream) {
-          return await callProviderStream({
+          result = await callProviderStream({
+            providerConfig: config,
+            transformer,
+            body,
+            timeout,
+          });
+        } else {
+          result = await callProvider({
             providerConfig: config,
             transformer,
             body,
             timeout,
           });
         }
-        return await callProvider({
-          providerConfig: config,
-          transformer,
-          body,
-          timeout,
-        });
+        breaker?.recordSuccess();
+        return result;
       } catch (err) {
         const pErr =
           err instanceof PipelineError
             ? err
             : new PipelineError(String(err), 'unknown', config.name, 500, false);
 
+        breaker?.recordFailure();
         errors.push({ provider: config.name, error: pErr });
         log.warn(`Provider ${config.name} failed (attempt ${attempt + 1})`, {
           code: pErr.code,

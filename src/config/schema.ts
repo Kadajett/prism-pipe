@@ -51,6 +51,31 @@ export const StoreConfigSchema = z.object({
 });
 export type StoreConfig = z.infer<typeof StoreConfigSchema>;
 
+export const EgressIpSchema = z.object({
+  address: z.string(),
+  weight: z.number().positive().optional(),
+  providers: z.array(z.string()).optional(),
+});
+
+export const EgressProxySchema = z.object({
+  url: z.string(),
+  providers: z.array(z.string()).optional(),
+});
+
+export const EgressConfigSchema = z.object({
+  ips: z.array(EgressIpSchema).optional(),
+  proxies: z.array(EgressProxySchema).optional(),
+  strategy: z.enum(['round-robin', 'random', 'least-recently-used', 'weighted-round-robin']).default('round-robin'),
+});
+export type EgressConfig = z.infer<typeof EgressConfigSchema>;
+
+export const CircuitBreakerConfigSchema = z.object({
+  failureThreshold: z.number().positive().default(5),
+  resetTimeoutMs: z.number().positive().default(30_000),
+  halfOpenRequests: z.number().positive().default(1),
+});
+export type CircuitBreakerConfig = z.infer<typeof CircuitBreakerConfigSchema>;
+
 // ── Root schema ──
 
 const ServerConfigSchema = z.object({
@@ -72,6 +97,8 @@ export const PrismPipeConfigSchema = z.object({
   rateLimits: RateLimitConfigSchema.optional(),
   logging: nestedWithDefaults(LoggingConfigSchema),
   store: nestedWithDefaults(StoreConfigSchema),
+  egress: EgressConfigSchema.optional(),
+  circuitBreaker: CircuitBreakerConfigSchema.optional(),
 });
 
 export type PrismPipeConfig = z.infer<typeof PrismPipeConfigSchema>;
