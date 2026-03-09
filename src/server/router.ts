@@ -38,6 +38,34 @@ function detectClientFormat(body: Record<string, unknown>): string {
   return 'openai';
 }
 
+/**
+ * Resolve the correct transformer for a provider config.
+ * Uses explicit format field, falls back to inferring from baseUrl, then provider name.
+ */
+function resolveProviderTransformer(
+  providerConfig: { name: string; baseUrl: string; format?: string },
+  registry: TransformRegistry,
+  fallback: import('../proxy/transform-registry.js').ProviderTransformer
+): import('../proxy/transform-registry.js').ProviderTransformer {
+  // 1. Explicit format field on provider config
+  if (providerConfig.format && registry.has(providerConfig.format)) {
+    return registry.get(providerConfig.format);
+  }
+  // 2. Infer from baseUrl
+  if (providerConfig.baseUrl.includes('anthropic')) {
+    if (registry.has('anthropic')) return registry.get('anthropic');
+  }
+  if (providerConfig.baseUrl.includes('openai')) {
+    if (registry.has('openai')) return registry.get('openai');
+  }
+  // 3. Check if provider name matches a registered format
+  if (registry.has(providerConfig.name)) {
+    return registry.get(providerConfig.name);
+  }
+  // 4. Fall back to client format
+  return fallback;
+}
+
 export function setupRoutes(app: Express, opts: RouterOptions) {
   const { config, pipeline, transformRegistry } = opts;
 
@@ -66,9 +94,7 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
           .filter((name) => config.providers[name])
           .map((name) => ({
             config: config.providers[name],
-            transformer: transformRegistry.has(name)
-              ? transformRegistry.get(name)
-              : clientTransformer,
+            transformer: resolveProviderTransformer(config.providers[name], transformRegistry, clientTransformer),
           }));
 
         // Determine target provider format

@@ -1,11 +1,7 @@
 node_modules/
 dist/
 *.db
-<<<<<<< HEAD
-=======
 data/
->>>>>>> 549e39d (feat: MVP integration — end-to-end proxy with zero-config npx start (#10))
 .env
 .env.*
 !.env.example
-dist/

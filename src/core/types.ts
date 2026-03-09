@@ -140,6 +140,7 @@ export interface ProviderConfig {
   name: string;
   baseUrl: string;
   apiKey: string;
+  format?: string;
   models?: Record<string, string>;
   defaultModel?: string;
   timeout?: number;
