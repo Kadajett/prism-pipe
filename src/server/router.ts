@@ -5,6 +5,7 @@ import { createTimeoutBudget } from '../core/timeout.js';
 import type { CanonicalRequest, ResolvedConfig } from '../core/types.js';
 import { PipelineError } from '../core/types.js';
 import { executeFallbackChain } from '../fallback/chain.js';
+import type { MetricsManager } from '../metrics/manager.js';
 import { writeSSEStream } from '../proxy/stream.js';
 import type { TransformRegistry } from '../proxy/transform-registry.js';
 
@@ -12,6 +13,7 @@ export interface RouterOptions {
   config: ResolvedConfig;
   pipeline: PipelineEngine;
   transformRegistry: TransformRegistry;
+  metricsManager?: MetricsManager;
 }
 
 /**
@@ -39,7 +41,17 @@ function detectClientFormat(body: Record<string, unknown>): string {
 }
 
 export function setupRoutes(app: Express, opts: RouterOptions) {
-  const { config, pipeline, transformRegistry } = opts;
+  const { config, pipeline, transformRegistry, metricsManager } = opts;
+
+  // Prometheus /metrics endpoint
+  if (metricsManager) {
+    app.get('/metrics', (_req: Request, res: Response) => {
+      metricsManager.flush();
+      const output = metricsManager.serialize('prometheus');
+      res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+      res.send(output);
+    });
+  }
 
   for (const route of config.routes) {
     app.post(route.path, async (req: Request, res: Response) => {
@@ -108,7 +120,8 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
         // If pipeline set a response (e.g., cache hit), return it
         if (ctx.response) {
           const serialized = clientTransformer.responseFromCanonical(ctx.response);
-          setResponseHeaders(res, reqId, primaryProvider.config.name, Date.now() - startTime);
+          const costMeta = ctx.metadata.get('cost') as { totalCost: number; inputCost: number; outputCost: number; flatRate: boolean } | undefined;
+          setResponseHeaders(res, reqId, primaryProvider.config.name, Date.now() - startTime, costMeta);
           res.json(serialized);
           return;
         }
@@ -146,7 +159,8 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
           ctx.metadata.set('provider', result.provider);
 
           const serialized = clientTransformer.responseFromCanonical(result.response);
-          setResponseHeaders(res, reqId, result.provider, Date.now() - startTime);
+          const costMeta = ctx.metadata.get('cost') as { totalCost: number; inputCost: number; outputCost: number; flatRate: boolean } | undefined;
+          setResponseHeaders(res, reqId, result.provider, Date.now() - startTime, costMeta);
           if (providers.length > 1 && result.provider !== primaryProvider.config.name) {
             res.setHeader('X-Prism-Fallback-Used', 'true');
           }
@@ -168,8 +182,22 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
   }
 }
 
-function setResponseHeaders(res: Response, reqId: string, provider: string, latencyMs: number) {
+function setResponseHeaders(
+  res: Response,
+  reqId: string,
+  provider: string,
+  latencyMs: number,
+  costMeta?: { totalCost: number; inputCost: number; outputCost: number; flatRate: boolean }
+) {
   res.setHeader('X-Request-ID', reqId);
   res.setHeader('X-Prism-Provider', provider);
   res.setHeader('X-Prism-Latency', String(Math.round(latencyMs)));
+
+  if (costMeta) {
+    res.setHeader('X-Prism-Cost-USD', costMeta.totalCost.toFixed(6));
+    const breakdown = costMeta.flatRate
+      ? 'flat-rate'
+      : `input=$${costMeta.inputCost.toFixed(6)},output=$${costMeta.outputCost.toFixed(6)}`;
+    res.setHeader('X-Prism-Cost-Breakdown', breakdown);
+  }
 }

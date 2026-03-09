@@ -51,6 +51,47 @@ export const StoreConfigSchema = z.object({
 });
 export type StoreConfig = z.infer<typeof StoreConfigSchema>;
 
+// ── Metrics / Cost / Budget schemas ──
+
+export const ExporterConfigSchema = z.object({
+  type: z.enum(['prometheus', 'otlp', 'statsd', 'console', 'custom']),
+  endpoint: z.string().optional(),
+  intervalMs: z.number().positive().optional(),
+  module: z.string().optional(),
+});
+export type ExporterConfig = z.infer<typeof ExporterConfigSchema>;
+
+export const MetricsConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  namespace: z.string().default('prism'),
+  exporters: z.array(ExporterConfigSchema).default([]),
+  remap: z.record(z.string(), z.string()).optional(),
+});
+export type MetricsConfig = z.infer<typeof MetricsConfigSchema>;
+
+export const CostConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  headers: z.boolean().default(true),
+  flatRate: z.array(z.string()).optional(),
+});
+export type CostConfig = z.infer<typeof CostConfigSchema>;
+
+export const BudgetHandlerConfigSchema = z.object({
+  type: z.enum(['webhook', 'log', 'custom']),
+  url: z.string().optional(),
+  module: z.string().optional(),
+});
+
+export const BudgetConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  daily: z.number().positive().optional(),
+  monthly: z.number().positive().optional(),
+  alertAt: z.array(z.number().min(0).max(100)).default([80, 90, 100]),
+  hardLimit: z.boolean().default(false),
+  handlers: z.array(BudgetHandlerConfigSchema).default([{ type: 'log' }]),
+});
+export type BudgetConfig = z.infer<typeof BudgetConfigSchema>;
+
 // ── Root schema ──
 
 const ServerConfigSchema = z.object({
@@ -72,6 +113,9 @@ export const PrismPipeConfigSchema = z.object({
   rateLimits: RateLimitConfigSchema.optional(),
   logging: nestedWithDefaults(LoggingConfigSchema),
   store: nestedWithDefaults(StoreConfigSchema),
+  metrics: nestedWithDefaults(MetricsConfigSchema),
+  cost: nestedWithDefaults(CostConfigSchema),
+  budget: nestedWithDefaults(BudgetConfigSchema),
 });
 
 export type PrismPipeConfig = z.infer<typeof PrismPipeConfigSchema>;
