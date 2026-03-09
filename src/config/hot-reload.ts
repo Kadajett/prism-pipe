@@ -97,7 +97,7 @@ export function startConfigWatcher(opts: HotReloadOptions): () => void {
         newConfig = opts.parseConfig(raw);
       } else {
         // Basic: just re-import the loader
-        const { loadConfig } = await import('./loader.js');
+        const { loadConfig } = await import('./loader');
         newConfig = loadConfig(configPath);
       }
 
