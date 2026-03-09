@@ -175,11 +175,28 @@ export interface ProviderConfig {
   timeout?: number;
 }
 
+export interface ComposeStepConfig {
+  name: string;
+  provider: string;
+  model?: string;
+  systemPrompt?: string;
+  inputTransform?: string;
+  timeout?: number;
+  onError?: 'fail' | 'skip' | 'default' | 'partial';
+  defaultContent?: string;
+}
+
+export interface ComposeConfig {
+  type: 'chain';
+  steps: ComposeStepConfig[];
+}
+
 export interface RouteConfig {
   path: string;
   providers: string[];
   pipeline?: string[];
   systemPrompt?: string;
+  compose?: ComposeConfig;
 }
 
 export interface ResolvedConfig {

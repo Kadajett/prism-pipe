@@ -1,10 +1,13 @@
 import type { Express, Request, Response } from 'express';
+import { ChainComposer } from '../compose/chain';
+import type { CallProviderFn, CompositionStep } from '../core/composer';
 import { PipelineContext } from '../core/context';
 import type { PipelineEngine } from '../core/pipeline';
 import { createTimeoutBudget } from '../core/timeout';
-import type { CanonicalRequest, ResolvedConfig } from '../core/types';
+import type { CanonicalRequest, ComposeStepConfig, ResolvedConfig } from '../core/types';
 import { PipelineError } from '../core/types';
 import { executeFallbackChain } from '../fallback/chain';
+import { callProvider as rawCallProvider } from '../proxy/provider';
 import { writeSSEStream } from '../proxy/stream';
 import type { TransformRegistry } from '../proxy/transform-registry';
 
@@ -110,6 +113,81 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
           const serialized = clientTransformer.responseFromCanonical(ctx.response);
           setResponseHeaders(res, reqId, primaryProvider.config.name, Date.now() - startTime);
           res.json(serialized);
+          return;
+        }
+
+        // ─── Compose route handling ───
+        if (route.compose) {
+          const composer = new ChainComposer();
+
+          // Build CallProviderFn that resolves provider by name
+          const callProviderFn: CallProviderFn = async (request, providerName, timeout) => {
+            const providerCfg = config.providers[providerName];
+            if (!providerCfg) {
+              throw new PipelineError(
+                `Unknown provider "${providerName}" in compose step`,
+                'invalid_request',
+                'compose_router',
+                400,
+              );
+            }
+            const format =
+              providerCfg.format ??
+              (providerCfg.baseUrl.includes('anthropic') ? 'anthropic' : undefined) ??
+              (providerCfg.baseUrl.includes('openai') ? 'openai' : undefined) ??
+              clientFormat;
+            const transformer = transformRegistry.has(format)
+              ? transformRegistry.get(format)
+              : clientTransformer;
+
+            const providerBody = transformer.fromCanonical(request);
+            const result = await rawCallProvider({
+              providerConfig: providerCfg,
+              transformer,
+              body: providerBody,
+              timeout,
+            });
+            return result.response;
+          };
+
+          // Map config steps to CompositionStep[]
+          const steps: CompositionStep[] = route.compose.steps.map((s: ComposeStepConfig) => ({
+            name: s.name,
+            provider: s.provider,
+            model: s.model,
+            systemPrompt: s.systemPrompt,
+            inputTransform: s.inputTransform,
+            timeout: s.timeout,
+            onError: s.onError,
+            defaultContent: s.defaultContent,
+          }));
+
+          const result = await composer.execute(ctx, steps, callProviderFn);
+
+          const totalMs = Date.now() - startTime;
+          if (result.finalResponse) {
+            const serialized = clientTransformer.responseFromCanonical(result.finalResponse);
+            setResponseHeaders(res, reqId, 'compose', totalMs);
+            res.setHeader('X-Prism-Compose-Steps', String(result.steps.length));
+            res.json(serialized);
+          } else {
+            // Partial/errored — build a text response from last successful step
+            const lastSuccess = [...result.steps].reverse().find((s) => s.status === 'success' || s.status === 'defaulted');
+            setResponseHeaders(res, reqId, 'compose', totalMs);
+            res.setHeader('X-Prism-Compose-Steps', String(result.steps.length));
+            res.json({
+              id: `compose-${reqId}`,
+              model: 'compose',
+              content: [{ type: 'text', text: lastSuccess?.content ?? '' }],
+              stop_reason: 'end',
+              usage: { input_tokens: 0, output_tokens: 0 },
+            });
+          }
+
+          ctx.log.info('compose request completed', {
+            steps: result.steps.map((s) => ({ name: s.name, status: s.status, ms: s.durationMs })),
+            totalMs,
+          });
           return;
         }
 

@@ -98,12 +98,47 @@ export function loadConfig(configPath?: string): ResolvedConfig {
 
   // Parse routes
   if (Array.isArray(rawConfig.routes)) {
-    config.routes = (rawConfig.routes as Array<Record<string, unknown>>).map((r) => ({
-      path: String(r.path),
-      providers: (r.providers as string[]) ?? [],
-      pipeline: r.pipeline as string[] | undefined,
-      systemPrompt: r.systemPrompt as string | undefined,
-    }));
+    config.routes = (rawConfig.routes as Array<Record<string, unknown>>).map((r) => {
+      const route: import('../core/types').RouteConfig = {
+        path: String(r.path),
+        providers: (r.providers as string[]) ?? [],
+        pipeline: r.pipeline as string[] | undefined,
+        systemPrompt: r.systemPrompt as string | undefined,
+      };
+
+      // Parse compose config
+      if (r.compose && typeof r.compose === 'object') {
+        const c = r.compose as Record<string, unknown>;
+        const composeType = String(c.type ?? 'chain');
+        if (composeType !== 'chain') {
+          throw new Error(`Unsupported compose type: "${composeType}". Only "chain" is supported.`);
+        }
+        const rawSteps = c.steps as Array<Record<string, unknown>> | undefined;
+        if (!Array.isArray(rawSteps) || rawSteps.length === 0) {
+          throw new Error(`Compose route "${route.path}" requires at least one step.`);
+        }
+        route.compose = {
+          type: 'chain',
+          steps: rawSteps.map((s) => {
+            if (!s.name || !s.provider) {
+              throw new Error(`Compose steps require "name" and "provider" fields.`);
+            }
+            return {
+              name: String(s.name),
+              provider: String(s.provider),
+              model: s.model ? String(s.model) : undefined,
+              systemPrompt: s.systemPrompt as string | undefined,
+              inputTransform: s.inputTransform as string | undefined,
+              timeout: s.timeout ? Number(s.timeout) : undefined,
+              onError: s.onError as 'fail' | 'skip' | 'default' | 'partial' | undefined,
+              defaultContent: s.defaultContent as string | undefined,
+            };
+          }),
+        };
+      }
+
+      return route;
+    });
   }
 
   return config;
