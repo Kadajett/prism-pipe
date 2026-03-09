@@ -1,0 +1,141 @@
+# Default values for prism-pipe Helm chart
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/kadajett/prism-pipe
+  tag: ""  # Defaults to Chart appVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# -- prism-pipe configuration (mounted as ConfigMap)
+config:
+  port: 3000
+  logLevel: info
+  requestTimeout: 120000
+  # providers: {}  # Configure in secret or here
+  # routes: []
+
+# -- Environment variables (non-secret)
+env: {}
+  # LOG_LEVEL: debug
+
+# -- Secret environment variables (API keys, etc.)
+# These are stored in a Kubernetes Secret
+secretEnv: {}
+  # OPENAI_API_KEY: sk-...
+  # ANTHROPIC_API_KEY: sk-ant-...
+  # PRISM_API_KEYS: key1,key2
+
+# -- Reference an existing secret instead of creating one
+existingSecret: ""
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: prism-pipe.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+    # - secretName: prism-pipe-tls
+    #   hosts:
+    #     - prism-pipe.local
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    # Custom metrics for p99 latency and queue depth
+    # Requires prometheus-adapter
+    # - type: Pods
+    #   pods:
+    #     metric:
+    #       name: http_request_duration_p99
+    #     target:
+    #       type: AverageValue
+    #       averageValue: "500m"
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# -- Prometheus ServiceMonitor
+serviceMonitor:
+  enabled: false
+  namespace: ""
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+
+# -- Persistence for SQLite store
+persistence:
+  enabled: true
+  storageClass: ""
+  accessModes: [ReadWriteOnce]
+  size: 1Gi
+
+# -- Health check configuration
+healthCheck:
+  liveness:
+    path: /health
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    path: /ready
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3

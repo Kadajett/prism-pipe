@@ -1,0 +1,73 @@
+# Example: Run prism-pipe as a sidecar in GitHub Actions CI
+#
+# Use case: Route AI API calls in your test suite through prism-pipe
+# for rate limiting, logging, and provider fallback.
+#
+# Copy this workflow or include the relevant steps in your own.
+
+name: CI with Prism Pipe Sidecar
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test-with-proxy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Install and start prism-pipe in background
+      - name: Start prism-pipe sidecar
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PRISM_API_KEYS: ci-test-key
+          LOG_LEVEL: debug
+          PORT: 3100
+        run: |
+          npx prism-pipe &
+          PRISM_PID=$!
+          echo "PRISM_PID=$PRISM_PID" >> $GITHUB_ENV
+
+          # Wait for prism-pipe to be ready
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3100/health > /dev/null 2>&1; then
+              echo "✅ prism-pipe is ready"
+              break
+            fi
+            sleep 1
+          done
+
+      # Run your tests with prism-pipe as the API endpoint
+      - name: Run tests
+        env:
+          OPENAI_BASE_URL: http://localhost:3100/v1
+          ANTHROPIC_BASE_URL: http://localhost:3100
+        run: |
+          npm ci
+          npm test
+
+      # Collect prism-pipe logs as artifact
+      - name: Write sidecar summary
+        if: always()
+        run: |
+          echo "## 🔮 Prism Pipe Sidecar" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if curl -sf http://localhost:3100/health; then
+            echo "✅ Proxy was healthy during test run" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Proxy was not reachable" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Stop prism-pipe
+        if: always()
+        run: |
+          if [ -n "$PRISM_PID" ]; then
+            kill $PRISM_PID 2>/dev/null || true
+          fi

@@ -1,0 +1,32 @@
+[Unit]
+Description=Prism Pipe - AI Proxy Service
+Documentation=https://github.com/Kadajett/prism-pipe
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{USER}}
+Group={{USER}}
+WorkingDirectory={{WORKING_DIR}}
+EnvironmentFile={{ENV_FILE}}
+ExecStart=/usr/bin/env node {{WORKING_DIR}}/dist/index.js
+Restart={{RESTART_POLICY}}
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=prism-pipe
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths={{WORKING_DIR}}/data
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target
