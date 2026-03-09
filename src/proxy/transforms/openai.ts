@@ -118,6 +118,21 @@ export class OpenAITransformer implements ProviderTransformer {
         };
       });
     }
+
+    // Capture all fields not explicitly handled into extras for passthrough.
+    // This preserves response_format, logprobs, seed, frequency_penalty, etc.
+    const knownKeys = new Set([
+      'model', 'messages', 'temperature', 'max_tokens', 'max_completion_tokens',
+      'top_p', 'stop', 'stream', 'tools', 'tool_choice',
+    ]);
+    const extras: Record<string, unknown> = {};
+    for (const key of Object.keys(r)) {
+      if (!knownKeys.has(key)) {
+        extras[key] = r[key];
+      }
+    }
+    if (Object.keys(extras).length > 0) req.extras = extras;
+
     return req;
   }
 
@@ -196,6 +211,16 @@ export class OpenAITransformer implements ProviderTransformer {
         function: { name: t.name, description: t.description, parameters: t.inputSchema },
       }));
     }
+
+    // Spread extras back into the outgoing request (response_format, logprobs, seed, etc.)
+    if (req.extras) {
+      for (const [key, value] of Object.entries(req.extras)) {
+        if (!(key in result)) {
+          result[key] = value;
+        }
+      }
+    }
+
     return result;
   }
 

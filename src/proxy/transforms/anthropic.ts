@@ -91,6 +91,18 @@ export class AnthropicTransformer implements ProviderTransformer {
         inputSchema: (t.input_schema as Record<string, unknown>) ?? {},
       }));
     }
+
+    // Capture unrecognized fields into extras for passthrough
+    const knownKeys = new Set([
+      'model', 'messages', 'system', 'temperature', 'max_tokens', 'top_p',
+      'stop_sequences', 'stream', 'tools', 'tool_choice', 'metadata',
+    ]);
+    const extras: Record<string, unknown> = {};
+    for (const key of Object.keys(r)) {
+      if (!knownKeys.has(key)) extras[key] = r[key];
+    }
+    if (Object.keys(extras).length > 0) req.extras = extras;
+
     return req;
   }
 
@@ -164,6 +176,14 @@ export class AnthropicTransformer implements ProviderTransformer {
         input_schema: t.inputSchema,
       }));
     }
+
+    // Spread extras back into the outgoing request
+    if (req.extras) {
+      for (const [key, value] of Object.entries(req.extras)) {
+        if (!(key in result)) result[key] = value;
+      }
+    }
+
     return result;
   }
 
