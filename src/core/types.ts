@@ -176,3 +176,24 @@ export interface MetricsEmitter {
   histogram(name: string, value: number, tags?: Record<string, string>): void;
   gauge(name: string, value: number, tags?: Record<string, string>): void;
 }
+
+// Type guards for ContentBlock
+export function isTextContent(block: ContentBlock): block is TextBlock {
+  return block.type === 'text';
+}
+
+export function isImageContent(block: ContentBlock): block is ImageBlock {
+  return block.type === 'image';
+}
+
+export function isToolUseContent(block: ContentBlock): block is ToolUseBlock {
+  return block.type === 'tool_use';
+}
+
+export function isToolResultContent(block: ContentBlock): block is ToolResultBlock {
+  return block.type === 'tool_result';
+}
+
+export function isThinkingContent(block: ContentBlock): block is ThinkingBlock {
+  return block.type === 'thinking';
+}

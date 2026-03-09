@@ -85,7 +85,7 @@ export async function executeFallbackChain(
   // All providers exhausted
   const lastError = errors[errors.length - 1]?.error;
   throw new PipelineError(
-    `All providers failed. Last error: ${lastError?.message ?? 'unknown'}`,
+    `All ${errors.length} providers failed. Last error: ${lastError?.message ?? 'unknown'}`,
     lastError?.code ?? 'server_error',
     'fallback_chain',
     lastError?.statusCode ?? 502,
