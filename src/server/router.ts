@@ -66,13 +66,15 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
           .filter((name) => config.providers[name])
           .map((name) => {
             const providerCfg = config.providers[name];
-            // Resolve transformer by explicit format, inferred from baseUrl, or fallback to client format
-            const format = providerCfg.format
-              ?? (providerCfg.baseUrl.includes('anthropic') ? 'anthropic' : undefined)
-              ?? (providerCfg.baseUrl.includes('openai') ? 'openai' : undefined);
+            // Resolve transformer by explicit format, then infer from baseUrl, then fall back to client format
+            const format =
+              providerCfg.format ??
+              (providerCfg.baseUrl.includes('anthropic') ? 'anthropic' : undefined) ??
+              (providerCfg.baseUrl.includes('openai') ? 'openai' : undefined) ??
+              clientFormat;
             return {
               config: providerCfg,
-              transformer: format && transformRegistry.has(format)
+              transformer: transformRegistry.has(format)
                 ? transformRegistry.get(format)
                 : clientTransformer,
             };
