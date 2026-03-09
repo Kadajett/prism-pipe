@@ -1,36 +1,43 @@
 # Prism Pipe Configuration
-# Copy to prism-pipe.yaml and customize
+# Copy to prism-pipe.yaml and customize.
+# All settings have sane defaults — you can start with just env vars.
 
+# Server port (default: 3000, override with PORT env var)
 port: 3000
+
+# Log level: trace | debug | info | warn | error (override with LOG_LEVEL)
 logLevel: info
-requestTimeout: 120000  # 120 seconds
 
-# Provider configuration
-# API keys can use ${VAR} for environment variable interpolation
-providers:
-  openai:
-    baseUrl: https://api.openai.com
-    apiKey: ${OPENAI_API_KEY}
-    defaultModel: gpt-4o
+# Request timeout in ms (default: 120000 = 2 minutes)
+requestTimeout: 120000
 
-  anthropic:
-    baseUrl: https://api.anthropic.com
-    apiKey: ${ANTHROPIC_API_KEY}
-    defaultModel: claude-sonnet-4-20250514
+# Providers — auto-detected from env vars if omitted:
+#   OPENAI_API_KEY    → openai provider
+#   ANTHROPIC_API_KEY → anthropic provider
+#
+# providers:
+#   openai:
+#     baseUrl: https://api.openai.com
+#     apiKey: ${OPENAI_API_KEY}
+#     defaultModel: gpt-4o
+#   anthropic:
+#     baseUrl: https://api.anthropic.com
+#     apiKey: ${ANTHROPIC_API_KEY}
+#     defaultModel: claude-sonnet-4-20250514
+#   local:
+#     baseUrl: http://localhost:11434
+#     apiKey: ollama
 
-# Route configuration
-# Each route maps a path to a provider chain and pipeline
-routes:
-  - path: /v1/chat/completions
-    # Providers are tried in order (fallback chain)
-    providers:
-      - openai
-      - anthropic
-    # Pipeline middleware to run (in order)
-    pipeline:
-      - log-request
-      - transform-format
+# Routes — default route proxies /v1/chat/completions
+# routes:
+#   - path: /v1/chat/completions
+#     providers: [openai, anthropic]  # fallback order
+#     pipeline: [log-request, transform-format]
+#   - path: /v1/smart
+#     providers: [anthropic]
+#     systemPrompt: "Think step by step."
 
+<<<<<<< HEAD
   # Example: Anthropic-first route with system prompt
   # - path: /v1/smart
   #   providers:
@@ -41,3 +48,9 @@ routes:
   #     - log-request
   #     - inject-system
   #     - transform-format
+=======
+# Rate limiting — set RATE_LIMIT_RPM env var (default: 60 req/min)
+# Auth — set PRISM_API_KEYS env var (comma-separated) to enable
+# Store — defaults to SQLite at ./data/prism-pipe.db
+#   Set STORE_TYPE=memory for in-memory (testing/edge)
+>>>>>>> 549e39d (feat: MVP integration — end-to-end proxy with zero-config npx start (#10))

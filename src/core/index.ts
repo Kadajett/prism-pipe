@@ -1,6 +1,25 @@
-/**
- * Core types and error system
- */
-
-export * from './types.js';
-export * from './errors.js';
+export { PipelineContext, type PipelineContextOptions } from './context.js';
+export { type Middleware, PipelineEngine } from './pipeline.js';
+export { createTimeoutBudget, type TimeoutBudget } from './timeout.js';
+export type {
+  CanonicalMessage,
+  CanonicalRequest,
+  CanonicalResponse,
+  CanonicalStreamChunk,
+  ContentBlock,
+  ErrorClass,
+  ImageBlock,
+  MetricsEmitter,
+  ProviderCapabilities,
+  ProviderConfig,
+  ResolvedConfig,
+  RouteConfig,
+  ScopedLogger,
+  TextBlock,
+  ThinkingBlock,
+  ToolDefinition,
+  ToolResultBlock,
+  ToolUseBlock,
+  UsageInfo,
+} from './types.js';
+export { PipelineError } from './types.js';
