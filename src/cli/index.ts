@@ -11,5 +11,5 @@ if (args.includes('install') || args.includes('uninstall')) {
   parseInstallArgs(args);
 } else {
   // Default: boot the server
-  await import('../index.js');
+  await import('../index');
 }
