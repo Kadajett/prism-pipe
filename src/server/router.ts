@@ -1,5 +1,8 @@
 import type { Express, Request, Response } from 'express';
+import type http from 'node:http';
+import type https from 'node:https';
 import { ChainComposer } from '../compose/chain';
+import { ToolRouterComposer } from '../compose/tool-router';
 import type { CallProviderFn, CompositionStep } from '../core/composer';
 import { PipelineContext } from '../core/context';
 import type { PipelineEngine } from '../core/pipeline';
@@ -8,13 +11,20 @@ import type { CanonicalRequest, ComposeStepConfig, ResolvedConfig } from '../cor
 import { PipelineError } from '../core/types';
 import { executeFallbackChain } from '../fallback/chain';
 import { callProvider as rawCallProvider } from '../proxy/provider';
+import { withFeatureDegradation } from '../proxy/feature-degradation';
 import { writeSSEStream } from '../proxy/stream';
 import type { TransformRegistry } from '../proxy/transform-registry';
+import type { Store } from '../store/interface';
+import type { StatsTracker } from '../admin/routes';
+import type { AgentFactory } from '../network/agent-factory';
 
 export interface RouterOptions {
   config: ResolvedConfig;
   pipeline: PipelineEngine;
   transformRegistry: TransformRegistry;
+  store?: Store;
+  stats?: StatsTracker;
+  agentFactory?: AgentFactory;
 }
 
 /**
@@ -42,12 +52,17 @@ function detectClientFormat(body: Record<string, unknown>): string {
 }
 
 export function setupRoutes(app: Express, opts: RouterOptions) {
-  const { config, pipeline, transformRegistry } = opts;
+  const { config, pipeline, transformRegistry, store, stats, agentFactory } = opts;
 
   for (const route of config.routes) {
     app.post(route.path, async (req: Request, res: Response) => {
       const startTime = Date.now();
       const reqId = (req as unknown as Record<string, unknown>).requestId as string;
+      let responseProvider = 'unknown';
+      let responseStatus = 200;
+      let usageInput = 0;
+      let usageOutput = 0;
+      let errorClass: string | undefined;
 
       try {
         const body = req.body as Record<string, unknown>;
@@ -56,6 +71,14 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
 
         // Convert client request to canonical
         const canonicalRequest: CanonicalRequest = clientTransformer.toCanonical(body);
+
+        // Create pipeline context early so ctx.log is available for feature degradation
+        const timeout = createTimeoutBudget(config.requestTimeout);
+        const ctx = new PipelineContext({
+          request: canonicalRequest,
+          config,
+          timeout,
+        });
 
         // Resolve provider chain
         const providerNames =
@@ -75,25 +98,20 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
               (providerCfg.baseUrl.includes('anthropic') ? 'anthropic' : undefined) ??
               (providerCfg.baseUrl.includes('openai') ? 'openai' : undefined) ??
               clientFormat;
+            const rawTransformer = transformRegistry.has(format)
+              ? transformRegistry.get(format)
+              : clientTransformer;
+            // Wrap with feature degradation
+            const transformer = withFeatureDegradation(rawTransformer, ctx.log);
             return {
               config: providerCfg,
-              transformer: transformRegistry.has(format)
-                ? transformRegistry.get(format)
-                : clientTransformer,
+              transformer,
             };
           });
 
         // Determine target provider format
         const primaryProvider = providers[0];
         const providerFormat = primaryProvider.transformer.provider;
-
-        // Create pipeline context
-        const timeout = createTimeoutBudget(config.requestTimeout);
-        const ctx = new PipelineContext({
-          request: canonicalRequest,
-          config,
-          timeout,
-        });
 
         ctx.metadata.set('clientFormat', clientFormat);
         ctx.metadata.set('providerFormat', providerFormat);
@@ -112,12 +130,71 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
         if (ctx.response) {
           const serialized = clientTransformer.responseFromCanonical(ctx.response);
           setResponseHeaders(res, reqId, primaryProvider.config.name, Date.now() - startTime);
+          usageInput = ctx.response.usage?.inputTokens ?? 0;
+          usageOutput = ctx.response.usage?.outputTokens ?? 0;
+          responseProvider = primaryProvider.config.name;
           res.json(serialized);
           return;
         }
 
         // ─── Compose route handling ───
         if (route.compose) {
+          if (route.compose.type === 'tool-router') {
+            // Tool router composition
+            const toolRouterCfg = route.compose.toolRouter;
+            const toolRouter = new ToolRouterComposer(
+              {
+                primary: toolRouterCfg.primary,
+                maxRounds: toolRouterCfg.maxRounds,
+                tools: toolRouterCfg.tools,
+              },
+              ctx.log
+            );
+
+            const providerCall = async (provider: string, request: CanonicalRequest) => {
+              const [provName] = provider.split('/');
+              const providerCfg = config.providers[provName ?? provider];
+              if (!providerCfg) {
+                throw new PipelineError(
+                  `Unknown provider "${provider}" in tool-router`,
+                  'invalid_request',
+                  'tool_router',
+                  400
+                );
+              }
+              const format =
+                providerCfg.format ??
+                (providerCfg.baseUrl.includes('anthropic') ? 'anthropic' : undefined) ??
+                (providerCfg.baseUrl.includes('openai') ? 'openai' : undefined) ??
+                clientFormat;
+              const transformer = transformRegistry.has(format)
+                ? transformRegistry.get(format)
+                : clientTransformer;
+
+              const providerBody = transformer.fromCanonical(request);
+              const result = await rawCallProvider({
+                providerConfig: providerCfg,
+                transformer,
+                body: providerBody,
+                timeout,
+              });
+              return result.response;
+            };
+
+            const result = await toolRouter.execute(canonicalRequest, providerCall);
+            const totalMs = Date.now() - startTime;
+            const serialized = clientTransformer.responseFromCanonical(result);
+            setResponseHeaders(res, reqId, 'tool-router', totalMs);
+            responseProvider = 'tool-router';
+            usageInput = result.usage?.inputTokens ?? 0;
+            usageOutput = result.usage?.outputTokens ?? 0;
+            res.json(serialized);
+
+            ctx.log.info('tool-router request completed', { totalMs });
+            return;
+          }
+
+          // Chain composition (existing)
           const composer = new ChainComposer();
 
           // Build CallProviderFn that resolves provider by name
@@ -165,10 +242,13 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
           const result = await composer.execute(ctx, steps, callProviderFn);
 
           const totalMs = Date.now() - startTime;
+          responseProvider = 'compose';
           if (result.finalResponse) {
             const serialized = clientTransformer.responseFromCanonical(result.finalResponse);
             setResponseHeaders(res, reqId, 'compose', totalMs);
             res.setHeader('X-Prism-Compose-Steps', String(result.steps.length));
+            usageInput = result.finalResponse.usage?.inputTokens ?? 0;
+            usageOutput = result.finalResponse.usage?.outputTokens ?? 0;
             res.json(serialized);
           } else {
             // Partial/errored — build a text response from last successful step
@@ -206,6 +286,7 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
 
           if ('chunks' in result) {
             const preStreamMs = Date.now() - startTime;
+            responseProvider = result.provider;
             setResponseHeaders(res, reqId, result.provider, preStreamMs);
             res.setHeader('X-Prism-Upstream-Latency', String(Math.round(result.latencyMs)));
 
@@ -240,6 +321,7 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
         if ('response' in result) {
           ctx.response = result.response;
           ctx.metadata.set('provider', result.provider);
+          responseProvider = result.provider;
 
           const totalMs = Date.now() - startTime;
           const serialized = clientTransformer.responseFromCanonical(result.response);
@@ -248,6 +330,9 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
           if (providers.length > 1 && result.provider !== primaryProvider.config.name) {
             res.setHeader('X-Prism-Fallback-Used', 'true');
           }
+
+          usageInput = ctx.response.usage?.inputTokens ?? 0;
+          usageOutput = ctx.response.usage?.outputTokens ?? 0;
 
           ctx.log.info('request completed', {
             model: ctx.response.model ?? ctx.request.model,
@@ -266,13 +351,50 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
         }
       } catch (err) {
         if (err instanceof PipelineError) {
+          responseStatus = err.statusCode;
+          errorClass = err.code;
+          stats?.recordError();
           res.status(err.statusCode).json({
             error: { message: err.message, code: err.code, step: err.step },
           });
         } else {
+          responseStatus = 500;
+          errorClass = 'unknown';
+          stats?.recordError();
           console.error('Unhandled route error:', err);
           res.status(500).json({
             error: { message: 'Internal server error', code: 'unknown' },
+          });
+        }
+      } finally {
+        const latencyMs = Date.now() - startTime;
+
+        // Record stats
+        if (stats) {
+          stats.recordRequest(responseProvider, latencyMs);
+          if (usageInput > 0 || usageOutput > 0) {
+            stats.recordTokens(usageInput, usageOutput);
+          }
+        }
+
+        // Log request to store
+        if (store) {
+          const body = req.body as Record<string, unknown>;
+          store.logRequest({
+            request_id: reqId,
+            timestamp: startTime,
+            method: req.method,
+            path: req.path,
+            provider: responseProvider,
+            model: (body?.model as string) ?? 'unknown',
+            status: responseStatus,
+            latency_ms: latencyMs,
+            input_tokens: usageInput,
+            output_tokens: usageOutput,
+            error_class: errorClass,
+            source_ip: req.ip ?? req.socket.remoteAddress ?? 'unknown',
+          }).catch((logErr) => {
+            console.error('Failed to log request to store:', logErr);
           });
         }
       }

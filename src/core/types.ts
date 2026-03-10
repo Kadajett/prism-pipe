@@ -186,10 +186,18 @@ export interface ComposeStepConfig {
   defaultContent?: string;
 }
 
-export interface ComposeConfig {
-  type: 'chain';
-  steps: ComposeStepConfig[];
+export interface ToolRouterComposeConfig {
+  /** Primary model that handles conversation and initiates tool calls */
+  primary: string;
+  /** Maximum tool call rounds before stopping (prevents infinite loops) */
+  maxRounds?: number;
+  /** Map of tool names to their handlers */
+  tools: Record<string, { provider?: string; handler?: string }>;
 }
+
+export type ComposeConfig =
+  | { type: 'chain'; steps: ComposeStepConfig[] }
+  | { type: 'tool-router'; toolRouter: ToolRouterComposeConfig; steps?: never };
 
 export interface RouteConfig {
   path: string;
