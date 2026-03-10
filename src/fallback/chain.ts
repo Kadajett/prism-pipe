@@ -23,6 +23,8 @@ export interface FallbackChainOptions {
   baseBackoffMs?: number;
   /** Optional circuit breaker registry — tripped providers are skipped */
   circuitBreakers?: CircuitBreakerRegistry;
+  /** Optional HTTP(S) agent for multi-IP egress */
+  agent?: import('node:http').Agent | import('node:https').Agent;
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -36,7 +38,7 @@ async function sleep(ms: number): Promise<void> {
 export async function executeFallbackChain(
   opts: FallbackChainOptions
 ): Promise<ProviderCallResult | ProviderStreamResult> {
-  const { providers, body, stream, timeout, log, maxRetries = 2, baseBackoffMs = 500, circuitBreakers } = opts;
+  const { providers, body, stream, timeout, log, maxRetries = 2, baseBackoffMs = 500, circuitBreakers, agent } = opts;
   const errors: Array<{ provider: string; error: PipelineError }> = [];
 
   for (const { config, transformer } of providers) {
@@ -61,6 +63,7 @@ export async function executeFallbackChain(
             transformer,
             body,
             timeout,
+            agent,
           });
         } else {
           result = await callProvider({
@@ -68,6 +71,7 @@ export async function executeFallbackChain(
             transformer,
             body,
             timeout,
+            agent,
           });
         }
         breaker?.recordSuccess();

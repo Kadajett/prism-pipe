@@ -167,9 +167,11 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
                 (providerCfg.baseUrl.includes('anthropic') ? 'anthropic' : undefined) ??
                 (providerCfg.baseUrl.includes('openai') ? 'openai' : undefined) ??
                 clientFormat;
-              const transformer = transformRegistry.has(format)
+              const rawTransformer = transformRegistry.has(format)
                 ? transformRegistry.get(format)
                 : clientTransformer;
+              // Wrap with feature degradation so providers without tool/vision support degrade gracefully
+              const transformer = withFeatureDegradation(rawTransformer, ctx.log);
 
               const providerBody = transformer.fromCanonical(request);
               const result = await rawCallProvider({
@@ -177,6 +179,7 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
                 transformer,
                 body: providerBody,
                 timeout,
+                agent: agentFactory?.getAgent(provName ?? provider),
               });
               return result.response;
             };
@@ -223,6 +226,7 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
               transformer,
               body: providerBody,
               timeout,
+              agent: agentFactory?.getAgent(providerName),
             });
             return result.response;
           };
@@ -282,6 +286,7 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
             stream: true,
             timeout,
             log: ctx.log,
+            agent: agentFactory?.getAgent(primaryProvider.config.name),
           });
 
           if ('chunks' in result) {
@@ -316,6 +321,7 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
           stream: false,
           timeout,
           log: ctx.log,
+          agent: agentFactory?.getAgent(primaryProvider.config.name),
         });
 
         if ('response' in result) {

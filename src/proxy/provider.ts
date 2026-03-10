@@ -14,6 +14,8 @@ export interface ProviderCallOptions {
   body: unknown;
   stream?: boolean;
   timeout: TimeoutBudget;
+  /** Optional HTTP(S) agent for multi-IP egress */
+  agent?: import('node:http').Agent | import('node:https').Agent;
 }
 
 export interface ProviderCallResult {
@@ -48,7 +50,7 @@ function classifyError(status: number): { code: PipelineErrorType['code']; retry
  * Makes HTTP calls to AI providers, handles JSON and SSE streaming responses.
  */
 export async function callProvider(opts: ProviderCallOptions): Promise<ProviderCallResult> {
-  const { providerConfig, transformer, body, timeout } = opts;
+  const { providerConfig, transformer, body, timeout, agent } = opts;
   const start = Date.now();
 
   const path = transformer.provider === 'anthropic' ? '/v1/messages' : '/v1/chat/completions';
@@ -65,14 +67,19 @@ export async function callProvider(opts: ProviderCallOptions): Promise<ProviderC
     headers.Authorization = `Bearer ${providerConfig.apiKey}`;
   }
 
+  // Build fetch options — agent is passed as undici 'dispatcher' for multi-IP egress
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fetchOptions: any = {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+    signal: timeout.signal,
+    ...(agent ? { dispatcher: agent } : {}),
+  };
+
   let res: Response;
   try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: timeout.signal,
-    });
+    res = await fetch(url, fetchOptions);
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw new PipelineError('Provider call timed out', 'timeout', providerConfig.name, 504, true);
@@ -112,7 +119,7 @@ export async function callProvider(opts: ProviderCallOptions): Promise<ProviderC
  * Makes a streaming call to a provider, returns an async iterator of canonical chunks.
  */
 export async function callProviderStream(opts: ProviderCallOptions): Promise<ProviderStreamResult> {
-  const { providerConfig, transformer, body, timeout } = opts;
+  const { providerConfig, transformer, body, timeout, agent } = opts;
   const start = Date.now();
 
   // Ensure stream is set in the body
@@ -134,14 +141,18 @@ export async function callProviderStream(opts: ProviderCallOptions): Promise<Pro
     headers.Authorization = `Bearer ${providerConfig.apiKey}`;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fetchOptions: any = {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(streamBody),
+    signal: timeout.signal,
+    ...(agent ? { dispatcher: agent } : {}),
+  };
+
   let res: Response;
   try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(streamBody),
-      signal: timeout.signal,
-    });
+    res = await fetch(url, fetchOptions);
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw new PipelineError(
