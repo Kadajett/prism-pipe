@@ -32,6 +32,7 @@ const proxy = createPrismPipe({
   rateLimitRpm: Number(process.env.RATE_LIMIT_RPM ?? 60),
   storeType: process.env.STORE_TYPE === 'memory' ? 'memory' : 'sqlite',
   storePath: process.env.STORE_PATH,
+  configPath: process.env.PRISM_CONFIG,
 });
 
 proxy.start().catch((err) => {
