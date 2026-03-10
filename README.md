@@ -130,6 +130,8 @@ npm run check        # Biome lint + format check
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 
+For the proposed future-facing programmatic surface, see [docs/PUBLIC-API.md](./docs/PUBLIC-API.md).
+
 ## License
 
 MIT
