@@ -22,15 +22,20 @@
 import type { Express } from 'express';
 import type { Server } from 'node:http';
 import pino from 'pino';
+import { setupAdminRoutes, StatsTracker } from './admin/routes';
+import { startConfigWatcher } from './config/hot-reload';
 import { PipelineEngine } from './core/pipeline';
 import type {
   ComposeConfig,
   ProviderConfig,
   ResolvedConfig,
   RouteConfig,
+  ToolRouterComposeConfig,
 } from './core/types';
 import { createLogMiddleware } from './middleware/log-request';
 import { createTransformMiddleware } from './middleware/transform-format';
+import { AgentFactory } from './network/agent-factory';
+import { IpPool } from './network/ip-pool';
 import { TransformRegistry } from './proxy/transform-registry';
 import { AnthropicTransformer } from './proxy/transforms/anthropic';
 import { OpenAITransformer } from './proxy/transforms/openai';
@@ -65,10 +70,9 @@ export interface PrismPipeComposeStepConfig {
   defaultContent?: string;
 }
 
-export interface PrismPipeComposeConfig {
-  type: 'chain';
-  steps: PrismPipeComposeStepConfig[];
-}
+export type PrismPipeComposeConfig =
+  | { type: 'chain'; steps: PrismPipeComposeStepConfig[] }
+  | { type: 'tool-router'; toolRouter: ToolRouterComposeConfig };
 
 export interface PrismPipeRouteConfig {
   path: string;
@@ -76,6 +80,15 @@ export interface PrismPipeRouteConfig {
   pipeline?: string[];
   systemPrompt?: string;
   compose?: PrismPipeComposeConfig;
+}
+
+export interface PrismPipeEgressConfig {
+  /** Local addresses to bind outbound connections to */
+  addresses?: string[];
+  /** Keep-alive for outbound connections. Default: true */
+  keepAlive?: boolean;
+  /** Max sockets per host. Default: 10 */
+  maxSockets?: number;
 }
 
 export interface PrismPipeConfig {
@@ -97,6 +110,10 @@ export interface PrismPipeConfig {
   storeType?: 'memory' | 'sqlite';
   /** SQLite store path. Only used when storeType is 'sqlite'. */
   storePath?: string;
+  /** Path to YAML config file for hot-reload support. */
+  configPath?: string;
+  /** Egress / multi-IP configuration. */
+  egress?: PrismPipeEgressConfig;
 }
 
 export interface PrismPipe {
@@ -115,7 +132,7 @@ export interface PrismPipe {
 // ─── Factory ───
 
 export function createPrismPipe(config: PrismPipeConfig = {}): PrismPipe {
-  const resolvedConfig = resolveConfig(config);
+  let resolvedConfig = resolveConfig(config);
   const startedAt = Date.now();
 
   // Logger
@@ -132,6 +149,9 @@ export function createPrismPipe(config: PrismPipeConfig = {}): PrismPipe {
       ? new SQLiteStore(config.storePath ?? './data/prism-pipe.db')
       : new MemoryStore();
 
+  // Stats tracker
+  const stats = new StatsTracker();
+
   // Transform registry
   const transformRegistry = new TransformRegistry();
   transformRegistry.register(new OpenAITransformer());
@@ -141,6 +161,19 @@ export function createPrismPipe(config: PrismPipeConfig = {}): PrismPipe {
   const pipeline = new PipelineEngine();
   pipeline.use(createLogMiddleware());
   pipeline.use(createTransformMiddleware(transformRegistry));
+
+  // Agent factory (multi-IP egress)
+  let agentFactory: AgentFactory | undefined;
+  if (config.egress?.addresses && config.egress.addresses.length > 0) {
+    const ipPool = new IpPool({
+      ips: config.egress.addresses.map((addr) => ({ address: addr })),
+    });
+    agentFactory = new AgentFactory({
+      ipPool,
+      keepAlive: config.egress.keepAlive,
+      maxSockets: config.egress.maxSockets,
+    });
+  }
 
   // Express app
   const app = createApp();
@@ -177,14 +210,29 @@ export function createPrismPipe(config: PrismPipeConfig = {}): PrismPipe {
     res.json({ object: 'list', data: models });
   });
 
-  // Routes
-  setupRoutes(app, { config: resolvedConfig, pipeline, transformRegistry });
+  // Admin routes
+  setupAdminRoutes(app, {
+    config: resolvedConfig,
+    stats,
+    getConfig: () => resolvedConfig,
+  });
+
+  // Routes (with store, stats, agentFactory for logging, metrics, egress)
+  setupRoutes(app, {
+    config: resolvedConfig,
+    pipeline,
+    transformRegistry,
+    store,
+    stats,
+    agentFactory,
+  });
 
   // Error handler (last)
   app.use(errorHandler);
 
   let server: Server | null = null;
   let actualPort: number = resolvedConfig.port;
+  let stopConfigWatcher: (() => void) | undefined;
 
   const instance: PrismPipe = {
     get port() {
@@ -205,6 +253,27 @@ export function createPrismPipe(config: PrismPipeConfig = {}): PrismPipe {
     async start() {
       await store.init();
 
+      // Config hot-reload
+      if (config.configPath) {
+        stopConfigWatcher = startConfigWatcher({
+          configPath: config.configPath,
+          getConfig: () => resolvedConfig,
+          onApply: (newConfig, changes) => {
+            resolvedConfig = newConfig;
+            logger.info(
+              { changes: changes.map((c) => c.field) },
+              'Config hot-reloaded',
+            );
+          },
+          log: {
+            info: (msg, data) => logger.info(data, msg),
+            warn: (msg, data) => logger.warn(data, msg),
+            error: (msg, data) => logger.error(data, msg),
+            debug: (msg, data) => logger.debug(data, msg),
+          },
+        });
+      }
+
       return new Promise<PrismPipe>((resolve, reject) => {
         try {
           server = app.listen(resolvedConfig.port, () => {
@@ -223,6 +292,17 @@ export function createPrismPipe(config: PrismPipeConfig = {}): PrismPipe {
     },
 
     async stop() {
+      // Stop config watcher
+      if (stopConfigWatcher) {
+        stopConfigWatcher();
+        stopConfigWatcher = undefined;
+      }
+
+      // Destroy agent factory
+      if (agentFactory) {
+        agentFactory.destroy();
+      }
+
       if (!server) return;
       return new Promise<void>((resolve, reject) => {
         server!.close(async (err) => {
