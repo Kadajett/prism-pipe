@@ -1,21 +1,26 @@
 /**
  * Programmatic API for Prism Pipe.
  *
- * @example
+ * New API (Phase 2):
+ * ```typescript
+ * import { PrismPipe, ProxyInstance } from 'prism-pipe';
+ *
+ * const prism = new PrismPipe({ storeType: 'memory' });
+ * const proxy = prism.createProxy(() => ({
+ *   ports: {
+ *     "3100": { providers: {...}, routes: {...} },
+ *     "3101": { providers: {...}, routes: {...} },
+ *   }
+ * }));
+ * await proxy.start();
+ * ```
+ *
+ * Legacy API (backward compatible):
  * ```typescript
  * import { createPrismPipe } from 'prism-pipe';
  *
- * const proxy = createPrismPipe({
- *   port: 3100,
- *   providers: {
- *     openai: { baseUrl: 'https://api.openai.com', apiKey: '...' },
- *   },
- *   routes: [{ path: '/v1/chat/completions', providers: ['openai'] }],
- * });
- *
+ * const proxy = createPrismPipe({ port: 3100, providers: {...} });
  * await proxy.start();
- * // ...
- * await proxy.stop();
  * ```
  */
 
@@ -48,7 +53,14 @@ import type { Store } from './store/interface';
 import { MemoryStore } from './store/memory';
 import { SQLiteStore } from './store/sqlite';
 
-// ─── Public Types ───
+// ─── New API re-exports ───
+
+export { PrismPipeClass as PrismPipe } from './prism-pipe';
+export type { PrismPipeClassConfig } from './prism-pipe';
+export { ProxyInstance } from './proxy-instance';
+export type { PortInfo, ProxyHealthInfo } from './proxy-instance';
+
+// ─── Legacy Public Types ───
 
 export interface PrismPipeProviderConfig {
   baseUrl: string;
@@ -116,9 +128,10 @@ export interface PrismPipeConfig {
   egress?: PrismPipeEgressConfig;
 }
 
-export interface PrismPipe {
+/** Legacy PrismPipe interface (from createPrismPipe) */
+export interface LegacyPrismPipe {
   /** Start the server. Returns the instance for chaining. */
-  start(): Promise<PrismPipe>;
+  start(): Promise<LegacyPrismPipe>;
   /** Stop the server gracefully. */
   stop(): Promise<void>;
   /** The port the server is listening on. */
@@ -129,9 +142,14 @@ export interface PrismPipe {
   health(): { status: string; uptime: number; providers: string[] };
 }
 
-// ─── Factory ───
+/**
+ * @deprecated Use `LegacyPrismPipe` instead. This alias exists for backward compatibility.
+ */
+export type PrismPipeInterface = LegacyPrismPipe;
 
-export function createPrismPipe(config: PrismPipeConfig = {}): PrismPipe {
+// ─── Legacy Factory (backward compatible) ───
+
+export function createPrismPipe(config: PrismPipeConfig = {}): LegacyPrismPipe {
   let resolvedConfig = resolveConfig(config);
   const startedAt = Date.now();
 
@@ -234,7 +252,7 @@ export function createPrismPipe(config: PrismPipeConfig = {}): PrismPipe {
   let actualPort: number = resolvedConfig.port;
   let stopConfigWatcher: (() => void) | undefined;
 
-  const instance: PrismPipe = {
+  const instance: LegacyPrismPipe = {
     get port() {
       return actualPort;
     },
@@ -274,7 +292,7 @@ export function createPrismPipe(config: PrismPipeConfig = {}): PrismPipe {
         });
       }
 
-      return new Promise<PrismPipe>((resolve, reject) => {
+      return new Promise<LegacyPrismPipe>((resolve, reject) => {
         try {
           server = app.listen(resolvedConfig.port, () => {
             const addr = server!.address();
@@ -384,4 +402,13 @@ export type {
   ProviderConfig,
   ResolvedConfig,
   RouteConfig,
+  PortConfig,
+  ProxyConfig,
+  ProxyErrorEvent,
+  RouteValue,
+  RouteConfigObject,
+  RouteHandler,
+  HotReloadConfig,
+  ExtendedComposeConfig,
+  RetryConfig,
 } from './core/types';
