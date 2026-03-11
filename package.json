@@ -30,6 +30,7 @@
     "typecheck": "tsc --noEmit",
     "build:check": "tsc --noEmit && tsup",
     "start": "node dist/index.js",
+    "prepare": "git config core.hooksPath .githooks || true",
     "check": "biome check .",
     "format": "biome format --write .",
     "lint": "biome lint .",

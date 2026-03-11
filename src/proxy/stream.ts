@@ -1,5 +1,5 @@
 import type { Response as ExpressResponse } from 'express';
-import type { CanonicalStreamChunk } from '../core/types';
+import type { CanonicalStreamChunk, UsageInfo } from '../core/types';
 import type { ProviderTransformer } from './transform-registry';
 
 /**
@@ -9,13 +9,19 @@ export async function writeSSEStream(
   res: ExpressResponse,
   chunks: AsyncIterableIterator<CanonicalStreamChunk>,
   transformer: ProviderTransformer
-): Promise<void> {
+): Promise<UsageInfo | undefined> {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
+  let finalUsage: UsageInfo | undefined;
+
   for await (const chunk of chunks) {
+    if (chunk.type === 'usage' && chunk.usage) {
+      finalUsage = chunk.usage;
+    }
+
     if (chunk.type === 'done') {
       if (transformer.provider === 'anthropic') {
         res.write('event: message_stop\ndata: {}\n\n');
@@ -48,6 +54,7 @@ export async function writeSSEStream(
   }
 
   res.end();
+  return finalUsage;
 }
 
 /**

@@ -1,7 +1,17 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import Database from 'better-sqlite3';
-import type { LogFilter, LogQuery, RateLimitEntry, RequestLogEntry, Store, UsageAggregate, CostRecord } from './interface';
+import type {
+  CostRecord,
+  LogFilter,
+  LogQuery,
+  RateLimitEntry,
+  RequestLogEntry,
+  Store,
+  UsageAggregate,
+  UsageLogEntry,
+  UsageLogQuery,
+} from './interface';
 
 export class SQLiteStore implements Store {
   private db?: Database.Database;
@@ -68,11 +78,32 @@ export class SQLiteStore implements Store {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
       CREATE INDEX IF NOT EXISTS idx_tenant_costs_tenant ON tenant_costs(tenant_id, month);
+
+      CREATE TABLE IF NOT EXISTS usage_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        request_id TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        model TEXT NOT NULL,
+        provider TEXT,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        thinking_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+        cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+        port TEXT,
+        proxy_id TEXT,
+        route_path TEXT,
+        tenant_id TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_usage_log_timestamp ON usage_log(timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_usage_log_model ON usage_log(model);
+      CREATE INDEX IF NOT EXISTS idx_usage_log_proxy ON usage_log(proxy_id);
     `);
 
     // Add new columns if they don't exist (safe migration for existing DBs)
-    const columns = this.db.prepare("PRAGMA table_info(request_log)").all() as { name: string }[];
-    const colNames = new Set(columns.map(c => c.name));
+    const columns = this.db.prepare('PRAGMA table_info(request_log)').all() as { name: string }[];
+    const colNames = new Set(columns.map((c) => c.name));
     const newCols: [string, string][] = [
       ['port', 'TEXT'],
       ['proxy_id', 'TEXT'],
@@ -149,6 +180,41 @@ export class SQLiteStore implements Store {
     }
   }
 
+  async recordUsage(entries: UsageLogEntry[]): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    if (entries.length === 0) return;
+
+    const statement = this.db.prepare(`
+      INSERT INTO usage_log (
+        request_id, timestamp, model, provider, input_tokens, output_tokens,
+        thinking_tokens, cache_read_tokens, cache_write_tokens, port, proxy_id, route_path, tenant_id
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const transaction = this.db.transaction((rows: UsageLogEntry[]) => {
+      for (const entry of rows) {
+        statement.run(
+          entry.request_id,
+          entry.timestamp,
+          entry.model,
+          entry.provider ?? null,
+          entry.input_tokens,
+          entry.output_tokens,
+          entry.thinking_tokens,
+          entry.cache_read_tokens,
+          entry.cache_write_tokens,
+          entry.port ?? null,
+          entry.proxy_id ?? null,
+          entry.route_path ?? null,
+          entry.tenant_id ?? null
+        );
+      }
+    });
+
+    transaction(entries);
+  }
+
   private buildWhereClause(filter: LogFilter | LogQuery): { where: string; params: unknown[] } {
     let where = ' WHERE 1=1';
     const params: unknown[] = [];
@@ -179,6 +245,22 @@ export class SQLiteStore implements Store {
       where += ' AND model = ?';
       params.push(q.model);
     }
+    if (q.port) {
+      where += ' AND port = ?';
+      params.push(q.port);
+    }
+    if (q.proxy_id) {
+      where += ' AND proxy_id = ?';
+      params.push(q.proxy_id);
+    }
+    if (q.route_path) {
+      where += ' AND route_path = ?';
+      params.push(q.route_path);
+    }
+    if (q.tenant_id) {
+      where += ' AND tenant_id = ?';
+      params.push(q.tenant_id);
+    }
     if (q.errorClass) {
       where += ' AND error_class = ?';
       params.push(q.errorClass);
@@ -197,8 +279,10 @@ export class SQLiteStore implements Store {
     if (q.offset !== undefined) {
       query += ` OFFSET ${q.offset}`;
     }
-    const rows = this.db.prepare(query).all(...params) as (RequestLogEntry & { fallback_used?: number | null })[];
-    return rows.map(r => ({
+    const rows = this.db.prepare(query).all(...params) as (RequestLogEntry & {
+      fallback_used?: number | null;
+    })[];
+    return rows.map((r) => ({
       ...r,
       fallback_used: r.fallback_used != null ? Boolean(r.fallback_used) : undefined,
     }));
@@ -207,20 +291,78 @@ export class SQLiteStore implements Store {
   async countLogs(filter: LogFilter | LogQuery): Promise<number> {
     if (!this.db) throw new Error('Database not initialized');
     const { where, params } = this.buildWhereClause(filter);
-    const row = this.db.prepare(`SELECT COUNT(*) as count FROM request_log${where}`).get(...params) as { count: number };
+    const row = this.db
+      .prepare(`SELECT COUNT(*) as count FROM request_log${where}`)
+      .get(...params) as { count: number };
     return row.count;
   }
 
   async aggregateUsage(filter: LogFilter | LogQuery): Promise<UsageAggregate> {
     if (!this.db) throw new Error('Database not initialized');
     const { where, params } = this.buildWhereClause(filter);
-    const row = this.db.prepare(
-      `SELECT COUNT(*) as totalRequests, COALESCE(SUM(input_tokens),0) as totalInputTokens, COALESCE(SUM(output_tokens),0) as totalOutputTokens, COALESCE(SUM(latency_ms),0) as totalLatencyMs FROM request_log${where}`
-    ).get(...params) as { totalRequests: number; totalInputTokens: number; totalOutputTokens: number; totalLatencyMs: number };
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) as totalRequests, COALESCE(SUM(input_tokens),0) as totalInputTokens, COALESCE(SUM(output_tokens),0) as totalOutputTokens, COALESCE(SUM(latency_ms),0) as totalLatencyMs FROM request_log${where}`
+      )
+      .get(...params) as {
+      totalRequests: number;
+      totalInputTokens: number;
+      totalOutputTokens: number;
+      totalLatencyMs: number;
+    };
     return {
       ...row,
       avgLatencyMs: row.totalRequests > 0 ? row.totalLatencyMs / row.totalRequests : 0,
     };
+  }
+
+  async queryUsage(filter: UsageLogQuery): Promise<UsageLogEntry[]> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    let where = ' WHERE 1=1';
+    const params: unknown[] = [];
+    if (filter.since !== undefined) {
+      where += ' AND timestamp >= ?';
+      params.push(filter.since);
+    }
+    if (filter.until !== undefined) {
+      where += ' AND timestamp <= ?';
+      params.push(filter.until);
+    }
+    if (filter.model) {
+      where += ' AND model = ?';
+      params.push(filter.model);
+    }
+    if (filter.provider) {
+      where += ' AND provider = ?';
+      params.push(filter.provider);
+    }
+    if (filter.port) {
+      where += ' AND port = ?';
+      params.push(filter.port);
+    }
+    if (filter.proxy_id) {
+      where += ' AND proxy_id = ?';
+      params.push(filter.proxy_id);
+    }
+    if (filter.route_path) {
+      where += ' AND route_path = ?';
+      params.push(filter.route_path);
+    }
+    if (filter.tenant_id) {
+      where += ' AND tenant_id = ?';
+      params.push(filter.tenant_id);
+    }
+    if (filter.request_id) {
+      where += ' AND request_id = ?';
+      params.push(filter.request_id);
+    }
+
+    const rows = this.db
+      .prepare(`SELECT * FROM usage_log${where} ORDER BY timestamp DESC, id DESC`)
+      .all(...params) as UsageLogEntry[];
+
+    return rows;
   }
 
   async deleteLogs(filter: LogFilter | LogQuery): Promise<number> {
@@ -232,9 +374,17 @@ export class SQLiteStore implements Store {
 
   async recordCost(record: CostRecord): Promise<void> {
     if (!this.db) throw new Error('Database not initialized');
-    this.db.prepare(
-      `INSERT INTO tenant_costs (tenant_id, month, cost_usd, provider, model) VALUES (?, ?, ?, ?, ?)`
-    ).run(record.tenantId, record.month, record.costUsd, record.provider ?? null, record.model ?? null);
+    this.db
+      .prepare(
+        `INSERT INTO tenant_costs (tenant_id, month, cost_usd, provider, model) VALUES (?, ?, ?, ?, ?)`
+      )
+      .run(
+        record.tenantId,
+        record.month,
+        record.costUsd,
+        record.provider ?? null,
+        record.model ?? null
+      );
   }
 
   async queryCosts(filter: { tenantId?: string; month?: string }): Promise<CostRecord[]> {
@@ -250,8 +400,14 @@ export class SQLiteStore implements Store {
       params.push(filter.month);
     }
     query += ' ORDER BY month DESC';
-    const rows = this.db.prepare(query).all(...params) as { tenant_id: string; month: string; cost_usd: number; provider: string | null; model: string | null }[];
-    return rows.map(r => ({
+    const rows = this.db.prepare(query).all(...params) as {
+      tenant_id: string;
+      month: string;
+      cost_usd: number;
+      provider: string | null;
+      model: string | null;
+    }[];
+    return rows.map((r) => ({
       tenantId: r.tenant_id,
       month: r.month,
       costUsd: r.cost_usd,

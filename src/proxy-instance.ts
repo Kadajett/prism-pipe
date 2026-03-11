@@ -1,66 +1,36 @@
 /**
- * ProxyInstance: manages one or more Express servers (one per port).
- * Each proxy holds references to the parent PrismPipe for shared resources.
+ * ProxyInstance: manages a single public proxy lifecycle.
+ * Listener bootstrapping and route execution live in dedicated runtime modules.
  */
 
-import type { Express } from 'express';
-import express from 'express';
-import type { Server } from 'node:http';
-import { ulid } from 'ulid';
 import pino from 'pino';
-import { setupAdminRoutes, StatsTracker } from './admin/routes';
-import type { AdminRouteOptions } from './admin/routes';
-import { TenantManager } from './auth/tenant';
-import { createAuthMiddleware } from './server/auth';
-import { CircuitBreakerRegistry } from './fallback/circuit-breaker';
-import { PipelineEngine } from './core/pipeline';
-import type { Middleware } from './core/pipeline';
-import { createLogMiddleware } from './middleware/log-request';
-import { createTransformMiddleware } from './middleware/transform-format';
-import { loadMiddlewareFromDir, watchMiddlewareDir } from './middleware/custom-loader';
-import { PluginRegistry } from './plugin/registry';
-import { loadPlugins } from './plugin/loader';
-import { AgentFactory } from './network/agent-factory';
-import { IpPool } from './network/ip-pool';
-import { TokenBucket } from './rate-limit/token-bucket';
-import { createRateLimitMiddleware } from './server/rate-limit';
-import { errorHandler } from './server/express';
-import { setupRoutes } from './server/router';
+import { ulid } from 'ulid';
+import { StatsTracker } from './admin/routes';
 import type {
-  PortConfig,
-  ProxyConfig,
+  CostSummary,
+  ModelDefinition,
+  ProxyDefinition,
   ProxyErrorEvent,
-  RouteConfigObject,
-  RouteValue,
-  HotReloadConfig,
-} from './core/types';
-import type {
-  ProviderConfig,
-  ResolvedConfig,
-  RouteConfig,
-  ComposeConfig,
+  ProxyStatus,
   ScopedLogger,
+  UsageSummary,
 } from './core/types';
-import type { Store } from './store/interface';
-import type { RequestLogEntry, LogQuery } from './store/interface';
-import type { TransformRegistry } from './proxy/transform-registry';
-import type { PrismPipeClass } from './prism-pipe';
-
-// ─── Types ───
-
-export interface PortInfo {
-  port: string;
-  server: Server;
-  app: Express;
-  pipeline: PipelineEngine;
-  agentFactory?: AgentFactory;
-  tenantManager?: TenantManager;
-}
+import { CostSummarySchema, ModelDefinitionSchema, ProxyStatusSchema } from './core/types';
+import { CircuitBreakerRegistry } from './fallback/circuit-breaker';
+import { loadPlugins } from './plugin/loader';
+import { PluginRegistry } from './plugin/registry';
+import type { PrismPipe } from './prism-pipe';
+import type { PortInfo } from './proxy/listener-runtime';
+import { buildPortConfig, getPrimaryPort, startProxyListener } from './proxy/listener-runtime';
+import { groupUsageByDimension, groupUsageByModel } from './proxy/usage-grouping';
+import type { LogQuery, RequestLogEntry } from './store/interface';
 
 export interface ProxyHealthInfo {
   status: 'healthy' | 'stopped' | 'degraded';
   uptime: number;
-  ports: Record<string, { listening: boolean; address: string | null }>;
+  port: number;
+  listening: boolean;
+  address: string | null;
   stats: ReturnType<StatsTracker['getStats']>;
 }
 
@@ -73,20 +43,21 @@ export class ProxyInstance {
   readonly stats: StatsTracker;
   readonly circuitBreakers: CircuitBreakerRegistry;
   readonly plugins: PluginRegistry;
-  readonly ports: Map<string, PortInfo> = new Map();
+  readonly models = new Map<string, ModelDefinition>();
 
-  private readonly parent: PrismPipeClass;
-  private readonly configFactory: () => ProxyConfig;
+  private readonly parent: PrismPipe;
+  private readonly definition: ProxyDefinition;
   private readonly errorHandlers: ErrorHandler[] = [];
   private readonly startedAt: number;
   private started = false;
   private middlewareWatchers: Array<() => void> = [];
   private readonly logger: ScopedLogger;
+  private portInfo?: PortInfo;
 
-  constructor(parent: PrismPipeClass, factory: () => ProxyConfig) {
-    this.id = ulid();
+  constructor(parent: PrismPipe, definition: ProxyDefinition) {
+    this.id = definition.id ?? ulid();
     this.parent = parent;
-    this.configFactory = factory;
+    this.definition = definition;
     this.stats = new StatsTracker();
     this.circuitBreakers = new CircuitBreakerRegistry();
     this.plugins = new PluginRegistry();
@@ -104,6 +75,19 @@ export class ProxyInstance {
       error: (msg, data) => pinoLogger.error(data, msg),
       debug: (msg, data) => pinoLogger.debug(data, msg),
     };
+
+    for (const [name, modelDefinition] of Object.entries(definition.models ?? {})) {
+      this.models.set(name, ModelDefinitionSchema.parse(modelDefinition));
+    }
+  }
+
+  registerModel(name: string, definition: ModelDefinition): this {
+    this.models.set(name, ModelDefinitionSchema.parse(definition));
+    return this;
+  }
+
+  getModel(name: string): ModelDefinition | undefined {
+    return this.models.get(name) ?? this.parent.getModel(name);
   }
 
   /**
@@ -115,85 +99,82 @@ export class ProxyInstance {
   }
 
   /**
-   * Start all ports. Returns self for chaining.
+   * Start the proxy listener. Returns self for chaining.
    */
   async start(): Promise<ProxyInstance> {
-    if (this.started) return this;
+    if (this.started) {
+      return this;
+    }
 
-    // Initialize store if not already done
     await this.parent.initStore();
 
-    const proxyConfig = this.configFactory();
-    const store = this.parent.store;
-    const transformRegistry = this.parent.transforms;
+    const portConfig = this.buildPortConfig();
 
-    // Load plugins if configured
-    for (const [, portConfig] of Object.entries(proxyConfig.ports)) {
-      if (portConfig.plugins && portConfig.plugins.length > 0) {
-        await loadPlugins(portConfig.plugins, process.cwd(), this.plugins);
+    if (portConfig.plugins && portConfig.plugins.length > 0) {
+      await loadPlugins(portConfig.plugins, process.cwd(), this.plugins);
+    }
+
+    for (const plugin of this.plugins.allPlugins()) {
+      if (plugin.onStart) {
+        await plugin.onStart();
       }
     }
 
-    // Call plugin onStart hooks
-    for (const plugin of this.plugins.allPlugins()) {
-      if (plugin.onStart) await plugin.onStart();
-    }
-
-    // Start each port
-    const portEntries = Object.entries(proxyConfig.ports);
-    const startPromises = portEntries.map(([portStr, portConfig]) =>
-      this.startPort(portStr, portConfig, store, transformRegistry),
-    );
-
-    await Promise.all(startPromises);
+    this.portInfo = await startProxyListener({
+      circuitBreakers: this.circuitBreakers,
+      definition: this.definition,
+      logger: this.logger,
+      plugins: this.plugins,
+      proxyId: this.id,
+      resolveModel: (name) => this.getModel(name),
+      stats: this.stats,
+      store: this.parent.store,
+      transformRegistry: this.parent.transforms,
+    });
     this.started = true;
     return this;
   }
 
   /**
-   * Stop all ports gracefully with connection draining.
+   * Stop the proxy listener gracefully with connection draining.
    */
   async stop(): Promise<void> {
-    if (!this.started) return;
+    if (!this.started) {
+      return;
+    }
 
-    // Stop middleware watchers
     for (const stop of this.middlewareWatchers) {
       stop();
     }
     this.middlewareWatchers = [];
 
-    // Call plugin onShutdown hooks
     for (const plugin of this.plugins.allPlugins()) {
       if (plugin.onShutdown) {
         await plugin.onShutdown();
       }
     }
 
-    // Stop all port servers with connection draining
-    const stopPromises = [...this.ports.values()].map(async (info) => {
-      // Destroy agent factory
-      if (info.agentFactory) {
-        info.agentFactory.destroy();
-      }
+    const info = this.portInfo;
+    if (info?.agentFactory) {
+      info.agentFactory.destroy();
+    }
 
-      if (!info.server.listening) return;
-
-      return new Promise<void>((resolve, reject) => {
-        // Stop accepting new connections
+    if (info?.server.listening) {
+      await new Promise<void>((resolve, reject) => {
         info.server.close((err) => {
-          if (err) reject(err);
-          else resolve();
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          resolve();
         });
 
-        // Force close after timeout (5 seconds default)
-        setTimeout(() => {
-          resolve(); // Resolve anyway after timeout
-        }, 5000);
+        setTimeout(resolve, 5000);
       });
-    });
+    }
 
-    await Promise.all(stopPromises);
-    this.ports.clear();
+    this.portInfo = undefined;
     this.started = false;
   }
 
@@ -211,261 +192,127 @@ export class ProxyInstance {
    * Query logs scoped to this proxy.
    */
   async getLogs(query: LogQuery = {}): Promise<RequestLogEntry[]> {
-    // Add proxy_id filter - store queryLogs doesn't support it yet
-    // but we can post-filter
-    const allLogs = await this.parent.store.queryLogs(query);
-    return allLogs.filter((log) => log.proxy_id === this.id);
+    return this.parent.store.queryLogs({
+      ...query,
+      proxy_id: this.id,
+    });
+  }
+
+  async getUsage(): Promise<UsageSummary> {
+    const entries = await this.parent.store.queryUsage({ proxy_id: this.id });
+    return this.parent.summarizeUsageEntries(entries);
+  }
+
+  async getCost(): Promise<CostSummary> {
+    const costs = Object.values(await this.getCostByModel());
+    return costs.reduce<CostSummary>(
+      (total, current) =>
+        CostSummarySchema.parse({
+          inputUsd: total.inputUsd + current.inputUsd,
+          outputUsd: total.outputUsd + current.outputUsd,
+          thinkingUsd: total.thinkingUsd + current.thinkingUsd,
+          cacheReadUsd: total.cacheReadUsd + current.cacheReadUsd,
+          cacheWriteUsd: total.cacheWriteUsd + current.cacheWriteUsd,
+          totalUsd: total.totalUsd + current.totalUsd,
+        }),
+      CostSummarySchema.parse({
+        inputUsd: 0,
+        outputUsd: 0,
+        thinkingUsd: 0,
+        cacheReadUsd: 0,
+        cacheWriteUsd: 0,
+        totalUsd: 0,
+      })
+    );
+  }
+
+  async getUsageByModel(): Promise<Record<string, UsageSummary>> {
+    const entries = await this.parent.store.queryUsage({ proxy_id: this.id });
+    return groupUsageByModel(entries, (groupEntries) =>
+      this.parent.summarizeUsageEntries(groupEntries)
+    );
+  }
+
+  async getCostByModel(): Promise<Record<string, CostSummary>> {
+    const usageByModel = await this.getUsageByModel();
+    return Object.fromEntries(
+      Object.entries(usageByModel).map(([modelName, usage]) => [
+        modelName,
+        this.parent.calculateCostSummary(modelName, usage),
+      ])
+    );
+  }
+
+  async getUsageByRoute(): Promise<Record<string, Record<string, UsageSummary>>> {
+    const entries = await this.parent.store.queryUsage({ proxy_id: this.id });
+    return groupUsageByDimension(
+      entries,
+      (entry) => entry.route_path ?? 'unmatched',
+      (groupEntries) => this.parent.summarizeUsageEntries(groupEntries)
+    );
+  }
+
+  async getCostByRoute(): Promise<Record<string, Record<string, CostSummary>>> {
+    const usageByRoute = await this.getUsageByRoute();
+    return Object.fromEntries(
+      Object.entries(usageByRoute).map(([routePath, usageByModel]) => [
+        routePath,
+        Object.fromEntries(
+          Object.entries(usageByModel).map(([modelName, usage]) => [
+            modelName,
+            this.parent.calculateCostSummary(modelName, usage),
+          ])
+        ),
+      ])
+    );
   }
 
   /**
-   * Aggregated health info across all ports.
+   * Health info for the single listener owned by this proxy.
    */
   health(): ProxyHealthInfo {
-    const portsInfo: Record<string, { listening: boolean; address: string | null }> = {};
-    let allListening = true;
+    const info = this.portInfo;
+    const address = info?.server.address();
+    const listening = info?.server.listening ?? false;
+    const resolvedAddress =
+      address && typeof address === 'object' ? `${address.address}:${address.port}` : null;
 
-    for (const [portStr, info] of this.ports) {
-      const listening = info.server.listening;
-      if (!listening) allListening = false;
-      const addr = info.server.address();
-      portsInfo[portStr] = {
+    if (info) {
+      return {
+        status: listening ? 'healthy' : 'degraded',
+        uptime: Math.floor((Date.now() - this.startedAt) / 1000),
+        port: this.getPrimaryPort(),
         listening,
-        address: addr && typeof addr === 'object' ? `${addr.address}:${addr.port}` : null,
+        address: resolvedAddress,
+        stats: this.stats.getStats(),
       };
     }
 
-    const status = !this.started
-      ? 'stopped' as const
-      : allListening
-        ? 'healthy' as const
-        : 'degraded' as const;
-
     return {
-      status,
+      status: this.started ? 'degraded' : 'stopped',
       uptime: Math.floor((Date.now() - this.startedAt) / 1000),
-      ports: portsInfo,
+      port: this.getPrimaryPort(),
+      listening,
+      address: resolvedAddress,
       stats: this.stats.getStats(),
     };
   }
 
+  status(): ProxyStatus {
+    const health = this.health();
+    const port = this.getPrimaryPort();
+
+    return ProxyStatusSchema.parse({
+      id: this.id,
+      state: health.status === 'healthy' ? 'running' : health.status,
+      port,
+      routes: Object.keys(this.definition.routes),
+      listening: health.status === 'healthy',
+      uptime: health.uptime,
+    });
+  }
+
   // ─── Private ───
-
-  private async startPort(
-    portStr: string,
-    portConfig: PortConfig,
-    store: Store,
-    transformRegistry: TransformRegistry,
-  ): Promise<void> {
-    const app = express();
-
-    // Body parser
-    app.use(express.json({ limit: '10mb' }));
-
-    // CORS
-    app.use((_req, res, next) => {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-ID');
-      if (_req.method === 'OPTIONS') {
-        res.status(204).end();
-        return;
-      }
-      next();
-    });
-
-    // Request ID + port/proxy augmentation
-    app.use((req, res, next) => {
-      const reqId = (req.headers['x-request-id'] as string) ?? ulid();
-      (req as unknown as Record<string, unknown>).requestId = reqId;
-      (req as unknown as Record<string, unknown>).port = portStr;
-      (req as unknown as Record<string, unknown>).proxyId = this.id;
-      res.setHeader('X-Request-ID', reqId);
-      res.setHeader('X-Prism-Version', '0.2.0');
-      next();
-    });
-
-    // Health endpoint
-    app.get('/health', (_req, res) => {
-      res.json({ status: 'ok', port: portStr, proxyId: this.id, timestamp: new Date().toISOString() });
-    });
-
-    // Auth
-    if (portConfig.apiKeys && portConfig.apiKeys.length > 0) {
-      app.use(createAuthMiddleware(portConfig.apiKeys));
-    }
-
-    // Tenant manager
-    let tenantManager: TenantManager | undefined;
-    if (portConfig.tenants || portConfig.jwt || portConfig.oauth2) {
-      tenantManager = new TenantManager({
-        tenants: portConfig.tenants,
-        jwt: portConfig.jwt,
-        oauth2: portConfig.oauth2,
-      });
-    }
-
-    // Rate limit
-    const rpm = portConfig.rateLimitRpm ?? 60;
-    const bucket = new TokenBucket({ capacity: rpm, refillRate: rpm / 60, store });
-    app.use(createRateLimitMiddleware(bucket));
-
-    // Agent factory (multi-IP egress)
-    let agentFactory: AgentFactory | undefined;
-    if (portConfig.ipPool) {
-      const ipPool = new IpPool(portConfig.ipPool);
-      agentFactory = new AgentFactory({
-        ipPool,
-        keepAlive: true,
-        maxSockets: 10,
-      });
-    }
-
-    // Pipeline engine per port
-    const pipeline = new PipelineEngine();
-    pipeline.use(createLogMiddleware());
-    pipeline.use(createTransformMiddleware(transformRegistry));
-
-    // Add plugin-registered middleware
-    for (const mw of this.plugins.allMiddleware()) {
-      pipeline.use(mw.middleware);
-    }
-
-    // Resolve providers from PortConfig
-    const resolvedProviders: Record<string, ProviderConfig> = portConfig.providers ?? {};
-
-    // Convert PortConfig routes to RouteConfig[]
-    const resolvedRoutes = this.resolveRoutes(portConfig);
-
-    // Build resolved config for this port
-    const portResolvedConfig: ResolvedConfig = {
-      port: parseInt(portStr, 10),
-      logLevel: 'info',
-      requestTimeout: 120_000,
-      providers: resolvedProviders,
-      routes: resolvedRoutes,
-    };
-
-    // /v1/models endpoint
-    app.get('/v1/models', (_req, res) => {
-      const models = Object.entries(resolvedProviders).flatMap(([providerName, provider]) => {
-        const providerModels = provider.models
-          ? Object.keys(provider.models)
-          : [provider.defaultModel ?? `${providerName}/default`];
-        return providerModels.map((model) => ({
-          id: model,
-          object: 'model' as const,
-          created: Math.floor(Date.now() / 1000),
-          owned_by: providerName,
-        }));
-      });
-      res.json({ object: 'list', data: models });
-    });
-
-    // Admin routes (if configured)
-    if (portConfig.admin) {
-      const adminOpts: AdminRouteOptions =
-        typeof portConfig.admin === 'object'
-          ? portConfig.admin
-          : {
-              config: portResolvedConfig,
-              stats: this.stats,
-              tenantManager,
-              circuitBreakers: this.circuitBreakers,
-              pluginRegistry: this.plugins,
-              getConfig: () => portResolvedConfig,
-            };
-
-      // If admin is `true`, we build opts ourselves
-      if (portConfig.admin === true) {
-        setupAdminRoutes(app, {
-          config: portResolvedConfig,
-          stats: this.stats,
-          tenantManager,
-          circuitBreakers: this.circuitBreakers,
-          pluginRegistry: this.plugins,
-          getConfig: () => portResolvedConfig,
-        });
-      } else {
-        setupAdminRoutes(app, adminOpts);
-      }
-    }
-
-    // Setup routes with store, stats, agentFactory
-    setupRoutes(app, {
-      config: portResolvedConfig,
-      pipeline,
-      transformRegistry,
-      store,
-      stats: this.stats,
-      agentFactory,
-    });
-
-    // Error handler (last)
-    app.use(errorHandler);
-
-    // Start listening
-    const server = await new Promise<Server>((resolve, reject) => {
-      try {
-        const portNum = parseInt(portStr, 10);
-        const srv = app.listen(portNum, () => {
-          this.logger.info(`Proxy port ${portStr} listening`);
-          resolve(srv);
-        });
-        srv.on('error', reject);
-      } catch (err) {
-        reject(err);
-      }
-    });
-
-    this.ports.set(portStr, {
-      port: portStr,
-      server,
-      app,
-      pipeline,
-      agentFactory,
-      tenantManager,
-    });
-  }
-
-  /**
-   * Convert PortConfig route map to RouteConfig array.
-   * Routes can be handler functions or config objects.
-   */
-  private resolveRoutes(portConfig: PortConfig): RouteConfig[] {
-    const routes: RouteConfig[] = [];
-
-    for (const [path, value] of Object.entries(portConfig.routes)) {
-      if (typeof value === 'function') {
-        // Function routes are handled separately by Express directly
-        // For now, skip them in the resolved config (they get wired as Express middleware)
-        continue;
-      }
-
-      const routeObj = value as RouteConfigObject;
-      const route: RouteConfig = {
-        path,
-        providers: routeObj.providers ?? [],
-        systemPrompt: routeObj.systemPrompt,
-      };
-
-      if (routeObj.compose) {
-        route.compose = routeObj.compose as ComposeConfig;
-      }
-
-      routes.push(route);
-    }
-
-    // Default route if none were config-type routes
-    if (routes.length === 0 && portConfig.providers) {
-      routes.push({
-        path: '/v1/chat/completions',
-        providers: Object.keys(portConfig.providers),
-        pipeline: ['log-request', 'transform-format'],
-      });
-    }
-
-    return routes;
-  }
 
   /**
    * Emit an error event to all registered handlers.
@@ -481,5 +328,13 @@ export class ProxyInstance {
 
     // Also emit to parent
     this.parent.emitError(event);
+  }
+
+  private getPrimaryPort(): number {
+    return getPrimaryPort(this.portInfo, this.definition.port);
+  }
+
+  private buildPortConfig(): ReturnType<typeof buildPortConfig> {
+    return buildPortConfig(this.definition);
   }
 }
