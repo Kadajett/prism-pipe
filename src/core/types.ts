@@ -3,6 +3,13 @@
  * All provider-specific formats are converted to/from these types.
  */
 
+import type { Request, Response } from 'express';
+import { z } from 'zod';
+import type { AdminRouteOptions } from '../admin/routes';
+import type { JwtConfig } from '../auth/tenant';
+import type { CircuitBreakerOptions } from '../fallback/circuit-breaker';
+import type { PipelineContext } from './context';
+
 // ─── Content Blocks ───
 
 export interface TextBlock {
@@ -232,139 +239,383 @@ export interface MetricsEmitter {
 
 // ─── Public API Types (Phase 1) ───
 
-import type { Request, Response } from 'express';
-import type { PluginReference } from '../plugin/types';
-import type { TenantConfig, JwtConfig, OAuth2Config } from '../auth/tenant';
-import type { CircuitBreakerOptions } from '../fallback/circuit-breaker';
-import type { IpPoolConfig, ProxyEntry as EgressProxyEntry } from '../network/ip-pool';
-import type { ToolHandler, ToolRouterConfig } from '../compose/tool-router';
-import type { AdminRouteOptions } from '../admin/routes';
-import type { PipelineContext } from '../types/index';
-
 // Re-export auth types for public API consumers
-export type { TenantConfig, JwtConfig, OAuth2Config } from '../auth/tenant';
+export type { JwtConfig, OAuth2Config, TenantConfig } from '../auth/tenant';
+
+const PositiveIntSchema = z.number().int().positive();
+const NonNegativeIntSchema = z.number().int().nonnegative();
+const NonNegativeNumberSchema = z.number().finite().nonnegative();
+const UnknownRecordSchema = z.record(z.string(), z.unknown());
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+const PluginReferenceSchema = z.strictObject({
+  source: z.string().min(1),
+  config: UnknownRecordSchema.optional(),
+  enabled: z.boolean().optional(),
+});
+
+const TenantConfigSchema = z.strictObject({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  apiKey: z.string().min(1),
+  rateLimitRpm: PositiveIntSchema.optional(),
+  allowedProviders: z.array(z.string().min(1)).optional(),
+  budgetUsd: NonNegativeNumberSchema.optional(),
+  admin: z.boolean().optional(),
+});
+
+const JwtConfigSchema = z.strictObject({
+  secret: z.string().min(1),
+  algorithm: z.custom<JwtConfig['algorithm']>((value) => typeof value === 'string').optional(),
+  issuer: z.string().min(1).optional(),
+  audience: z.string().min(1).optional(),
+});
+
+const OAuth2ConfigSchema = z.strictObject({
+  introspectionUrl: z.string().min(1).optional(),
+  clientId: z.string().min(1).optional(),
+  clientSecret: z.string().min(1).optional(),
+  jwksUri: z.string().min(1).optional(),
+});
+
+const EgressProxyEntrySchema = z.strictObject({
+  url: z.string().min(1),
+  providers: z.array(z.string().min(1)).optional(),
+});
+
+const IpPoolConfigSchema = z.strictObject({
+  ips: z
+    .array(
+      z.strictObject({
+        address: z.string().min(1),
+        weight: PositiveIntSchema.optional(),
+        providers: z.array(z.string().min(1)).optional(),
+      })
+    )
+    .optional(),
+  proxies: z.array(EgressProxyEntrySchema).optional(),
+  strategy: z
+    .enum(['round-robin', 'random', 'least-recently-used', 'weighted-round-robin'])
+    .optional(),
+});
+
+const CircuitBreakerOptionsSchema: z.ZodType<CircuitBreakerOptions> = z.strictObject({
+  failureThreshold: PositiveIntSchema.optional(),
+  resetTimeoutMs: NonNegativeIntSchema.optional(),
+  halfOpenRequests: PositiveIntSchema.optional(),
+  metrics: z.custom<MetricsEmitter>((value) => isPlainObject(value)).optional(),
+});
+
+const ProviderConfigSchema = z.strictObject({
+  name: z.string().min(1),
+  baseUrl: z.string().min(1),
+  apiKey: z.string().min(1),
+  format: z.string().min(1).optional(),
+  models: z.record(z.string(), z.string()).optional(),
+  defaultModel: z.string().min(1).optional(),
+  timeout: PositiveIntSchema.optional(),
+});
 
 /**
  * Route handler function — Express-compatible with PipelineContext.
  */
-export type RouteHandler = (req: Request, res: Response, ctx: PipelineContext) => void | Promise<void>;
+export type RouteHandler = (
+  req: Request,
+  res: Response,
+  ctx: PipelineContext
+) => RouteResult | Promise<RouteResult> | void | Promise<void>;
+
+export const RouteHandlerSchema = z.custom<RouteHandler>((value) => typeof value === 'function');
+
+const ToolHandlerSchema = z
+  .strictObject({
+    provider: z.string().min(1).optional(),
+    handler: z.string().min(1).optional(),
+  })
+  .refine((value) => value.provider !== undefined || value.handler !== undefined, {
+    error: 'Tool handlers must define a provider or handler',
+  });
 
 /**
  * Extended compose config supporting both chain and tool-router modes.
  */
-export interface ExtendedComposeConfig {
-  type: 'chain' | 'tool-router';
-  /** Steps for chain composition */
-  steps?: ComposeStepConfig[];
-  /** Primary model for tool-router composition */
-  primary?: string;
-  /** Tool handlers for tool-router composition */
-  tools?: Record<string, ToolHandler>;
-  /** Max tool call rounds for tool-router (default: 5) */
-  maxRounds?: number;
-}
+export const ExtendedComposeConfigSchema = z
+  .strictObject({
+    type: z.enum(['chain', 'tool-router']),
+    steps: z
+      .array(
+        z.strictObject({
+          name: z.string().min(1),
+          provider: z.string().min(1),
+          model: z.string().min(1).optional(),
+          systemPrompt: z.string().optional(),
+          inputTransform: z.string().min(1).optional(),
+          timeout: PositiveIntSchema.optional(),
+          onError: z.enum(['fail', 'skip', 'default', 'partial']).optional(),
+          defaultContent: z.string().optional(),
+        })
+      )
+      .optional(),
+    primary: z.string().min(1).optional(),
+    tools: z.record(z.string(), ToolHandlerSchema).optional(),
+    maxRounds: PositiveIntSchema.optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.type === 'chain' && !value.steps?.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Chain composition requires at least one step',
+        path: ['steps'],
+      });
+    }
+
+    if (value.type !== 'tool-router') {
+      return;
+    }
+
+    if (!value.primary) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Tool-router composition requires a primary model',
+        path: ['primary'],
+      });
+    }
+
+    if (!value.tools) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Tool-router composition requires a tools map',
+        path: ['tools'],
+      });
+    }
+  });
+
+export type ExtendedComposeConfig = z.infer<typeof ExtendedComposeConfigSchema>;
+
+export const RetryConfigSchema = z.strictObject({
+  maxAttempts: PositiveIntSchema,
+  backoffMs: NonNegativeIntSchema,
+});
+
+export type RetryConfig = z.infer<typeof RetryConfigSchema>;
 
 /**
  * Config-object route definition with full feature support.
  */
-export interface RouteConfigObject {
-  /** Provider names for this route (fallback order) */
+export type RouteConfigObject = {
   providers?: string[];
-  /** Composition config (chain or tool-router) */
   compose?: ExtendedComposeConfig;
-  /** Nested sub-routes */
   routes?: Record<string, RouteValue>;
-  /** Named middleware to apply to this route */
   middleware?: string[];
-  /** System prompt injected into requests */
   systemPrompt?: string;
-  /** Circuit breaker config per route */
   circuitBreaker?: CircuitBreakerOptions;
-  /** Retry config per route */
   retry?: RetryConfig;
-  /** Enable/disable feature degradation for this route */
   degradation?: boolean;
-}
+};
 
-/**
- * Retry configuration for route-level retries.
- */
-export interface RetryConfig {
-  maxAttempts: number;
-  backoffMs: number;
-}
-
-/**
- * A route value is either a handler function or a config object.
- */
 export type RouteValue = RouteHandler | RouteConfigObject;
+
+export const RouteValueSchema: z.ZodType<RouteValue> = z.lazy(() =>
+  z.union([RouteHandlerSchema, RouteConfigObjectSchema])
+);
+
+export const RouteConfigObjectSchema: z.ZodType<RouteConfigObject> = z.strictObject({
+  providers: z.array(z.string().min(1)).optional(),
+  compose: ExtendedComposeConfigSchema.optional(),
+  routes: z.record(z.string(), RouteValueSchema).optional(),
+  middleware: z.array(z.string().min(1)).optional(),
+  systemPrompt: z.string().optional(),
+  circuitBreaker: CircuitBreakerOptionsSchema.optional(),
+  retry: RetryConfigSchema.optional(),
+  degradation: z.boolean().optional(),
+});
 
 /**
  * Per-port configuration for the proxy.
  */
-export interface PortConfig {
-  /** Provider definitions keyed by name */
-  providers?: Record<string, ProviderConfig>;
-  /** Route definitions keyed by path pattern */
-  routes: Record<string, RouteValue>;
-  /** Global rate limit for this port (requests per minute) */
-  rateLimitRpm?: number;
-  /** API keys for simple auth on this port */
-  apiKeys?: string[];
-  /** Plugin references to load for this port */
-  plugins?: PluginReference[];
-  /** Tenant configurations for multi-tenant auth */
-  tenants?: TenantConfig[];
-  /** JWT auth config for this port */
-  jwt?: JwtConfig;
-  /** OAuth2 auth config for this port */
-  oauth2?: OAuth2Config;
-  /** IP pool config for egress */
-  ipPool?: IpPoolConfig;
-  /** Egress proxy config */
-  proxy?: EgressProxyEntry;
-  /** Admin API options (true = enable defaults, or pass config) */
-  admin?: boolean | AdminRouteOptions;
-}
+export const PortConfigSchema = z.strictObject({
+  providers: z.record(z.string(), ProviderConfigSchema).optional(),
+  routes: z.record(z.string(), RouteValueSchema),
+  rateLimitRpm: PositiveIntSchema.optional(),
+  apiKeys: z.array(z.string().min(1)).optional(),
+  plugins: z.array(PluginReferenceSchema).optional(),
+  tenants: z.array(TenantConfigSchema).optional(),
+  jwt: JwtConfigSchema.optional(),
+  oauth2: OAuth2ConfigSchema.optional(),
+  ipPool: IpPoolConfigSchema.optional(),
+  proxy: EgressProxyEntrySchema.optional(),
+  admin: z
+    .union([z.boolean(), z.custom<AdminRouteOptions>((value) => isPlainObject(value))])
+    .optional(),
+});
 
-/**
- * Top-level proxy configuration.
- * Keys are port numbers as strings, values are per-port config.
- */
-export interface ProxyConfig {
-  ports: Record<string, PortConfig>;
-  /** Runtime hint for adapter selection */
-  runtime?: 'node' | 'edge' | 'lambda';
-  /** Hot-reload configuration */
-  hotReload?: HotReloadConfig;
-}
+export type PortConfig = z.infer<typeof PortConfigSchema>;
 
-/**
- * Hot-reload configuration for the proxy.
- */
-export interface HotReloadConfig {
-  /** Reload mode: manual (programmatic) or watch (file watcher) */
-  mode: 'manual' | 'watch';
-  /** File path to watch (for watch mode) */
-  watchPath?: string;
-  /** Debounce interval in ms (default: 1000) */
-  debounceMs?: number;
-}
+export const HotReloadConfigSchema = z.strictObject({
+  mode: z.enum(['manual', 'watch']),
+  watchPath: z.string().min(1).optional(),
+  debounceMs: NonNegativeIntSchema.optional(),
+});
+
+export type HotReloadConfig = z.infer<typeof HotReloadConfigSchema>;
 
 /**
  * Unified error event wrapping all three error systems.
  */
-export interface ProxyErrorEvent {
-  /** The original error (ProxyError, PipelineError, or PrismError) */
-  error: Error;
-  /** Classified error class */
-  errorClass: ErrorClass;
-  /** Request context */
-  context: {
-    port?: string;
-    route?: string;
-    requestId?: string;
-    provider?: string;
-    tenantId?: string;
-  };
-}
+export const ProxyErrorEventSchema = z.strictObject({
+  error: z.instanceof(Error),
+  errorClass: z.enum([
+    'auth',
+    'rate_limit',
+    'timeout',
+    'server_error',
+    'invalid_request',
+    'content_filter',
+    'model_not_found',
+    'overloaded',
+    'network',
+    'unknown',
+  ]),
+  context: z.strictObject({
+    port: z.string().min(1).optional(),
+    route: z.string().min(1).optional(),
+    requestId: z.string().min(1).optional(),
+    provider: z.string().min(1).optional(),
+    tenantId: z.string().min(1).optional(),
+  }),
+});
+
+export type ProxyErrorEvent = z.infer<typeof ProxyErrorEventSchema>;
+
+/**
+ * Registered model definition used for token and cost accounting.
+ */
+export const ModelDefinitionSchema = z.strictObject({
+  provider: z.string().min(1),
+  inputCostPerMillion: NonNegativeNumberSchema.optional(),
+  outputCostPerMillion: NonNegativeNumberSchema.optional(),
+  thinkingCostPerMillion: NonNegativeNumberSchema.optional(),
+  cacheReadCostPerMillion: NonNegativeNumberSchema.optional(),
+  cacheWriteCostPerMillion: NonNegativeNumberSchema.optional(),
+  metadata: UnknownRecordSchema.optional(),
+});
+
+export type ModelDefinition = z.infer<typeof ModelDefinitionSchema>;
+
+/**
+ * Token usage for a single model inside a route execution.
+ */
+export const ModelUsageSchema = z.strictObject({
+  inputTokens: NonNegativeIntSchema.optional(),
+  outputTokens: NonNegativeIntSchema.optional(),
+  thinkingTokens: NonNegativeIntSchema.optional(),
+  cacheReadTokens: NonNegativeIntSchema.optional(),
+  cacheWriteTokens: NonNegativeIntSchema.optional(),
+});
+
+export type ModelUsage = z.infer<typeof ModelUsageSchema>;
+
+/**
+ * Future route return envelope for function-first public routes.
+ */
+export const RouteResultSchema = z.strictObject({
+  data: z.unknown(),
+  usage: z.record(z.string(), ModelUsageSchema).optional(),
+  meta: z
+    .strictObject({
+      status: z.number().int().min(100).max(599).optional(),
+      headers: z.record(z.string(), z.string()).optional(),
+    })
+    .optional(),
+});
+
+export type RouteResult = z.infer<typeof RouteResultSchema>;
+
+/**
+ * Future public proxy definition.
+ *
+ * This is the north-star API surface used by `prism.createProxy({...})`.
+ * It is intentionally simpler than the current internal multi-port shape.
+ */
+export const ProxyDefinitionSchema = PortConfigSchema.extend({
+  id: z.string().min(1).optional(),
+  port: z.number().int().min(0).max(65535),
+  models: z.record(z.string(), ModelDefinitionSchema).optional(),
+  hotReload: HotReloadConfigSchema.optional(),
+});
+
+export type ProxyDefinition = z.infer<typeof ProxyDefinitionSchema>;
+
+/**
+ * Query shape for usage and cost aggregations.
+ */
+export const UsageQuerySchema = z.strictObject({
+  since: NonNegativeIntSchema.optional(),
+  until: NonNegativeIntSchema.optional(),
+  model: z.string().min(1).optional(),
+  proxyId: z.string().min(1).optional(),
+  routePath: z.string().min(1).optional(),
+  tenantId: z.string().min(1).optional(),
+});
+
+export type UsageQuery = z.infer<typeof UsageQuerySchema>;
+
+/**
+ * Aggregate token totals.
+ */
+export const UsageSummarySchema = z.strictObject({
+  requests: NonNegativeIntSchema,
+  inputTokens: NonNegativeIntSchema,
+  outputTokens: NonNegativeIntSchema,
+  thinkingTokens: NonNegativeIntSchema,
+  cacheReadTokens: NonNegativeIntSchema,
+  cacheWriteTokens: NonNegativeIntSchema,
+  totalTokens: NonNegativeIntSchema,
+});
+
+export type UsageSummary = z.infer<typeof UsageSummarySchema>;
+
+/**
+ * Aggregate cost totals.
+ */
+export const CostSummarySchema = z.strictObject({
+  inputUsd: NonNegativeNumberSchema,
+  outputUsd: NonNegativeNumberSchema,
+  thinkingUsd: NonNegativeNumberSchema,
+  cacheReadUsd: NonNegativeNumberSchema,
+  cacheWriteUsd: NonNegativeNumberSchema,
+  totalUsd: NonNegativeNumberSchema,
+});
+
+export type CostSummary = z.infer<typeof CostSummarySchema>;
+
+/**
+ * Public proxy lifecycle view.
+ */
+export const ProxyStatusSchema = z.strictObject({
+  id: z.string().min(1),
+  state: z.enum(['running', 'stopped', 'degraded']),
+  port: z.number().int().min(0).max(65535),
+  routes: z.array(z.string()),
+  listening: z.boolean(),
+  uptime: NonNegativeIntSchema,
+});
+
+export type ProxyStatus = z.infer<typeof ProxyStatusSchema>;
+
+/**
+ * Public Prism lifecycle view.
+ */
+export const PrismStatusSchema = z.strictObject({
+  state: z.enum(['running', 'stopped', 'degraded']),
+  proxies: z.array(ProxyStatusSchema),
+  totals: z.strictObject({
+    registered: NonNegativeIntSchema,
+    running: NonNegativeIntSchema,
+  }),
+});
+
+export type PrismStatus = z.infer<typeof PrismStatusSchema>;

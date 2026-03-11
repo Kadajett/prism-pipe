@@ -1,15 +1,27 @@
-import type { LogFilter, LogQuery, RateLimitEntry, RequestLogEntry, Store, UsageAggregate, CostRecord } from './interface';
+import type {
+  CostRecord,
+  LogFilter,
+  LogQuery,
+  RateLimitEntry,
+  RequestLogEntry,
+  Store,
+  UsageAggregate,
+  UsageLogEntry,
+  UsageLogQuery,
+} from './interface';
 
 export class MemoryStore implements Store {
   private rateLimitMap = new Map<string, { entry: RateLimitEntry; expiresAt: number }>();
   private requestLogs: RequestLogEntry[] = [];
   private costRecords: CostRecord[] = [];
+  private usageLogs: UsageLogEntry[] = [];
 
   async init(): Promise<void> {}
   async close(): Promise<void> {
     this.rateLimitMap.clear();
     this.requestLogs = [];
     this.costRecords = [];
+    this.usageLogs = [];
   }
   async migrate(): Promise<void> {}
 
@@ -30,6 +42,14 @@ export class MemoryStore implements Store {
     this.requestLogs.push(entry);
   }
 
+  async recordUsage(entries: UsageLogEntry[]): Promise<void> {
+    if (entries.length === 0) {
+      return;
+    }
+
+    this.usageLogs.push(...entries);
+  }
+
   private filterLogs(filter: LogFilter | LogQuery): RequestLogEntry[] {
     const q = filter as LogQuery;
     return this.requestLogs.filter((log) => {
@@ -38,10 +58,15 @@ export class MemoryStore implements Store {
       if (filter.provider && log.provider !== filter.provider) return false;
       if (filter.status !== undefined && log.status !== filter.status) return false;
       if (q.model && log.model !== q.model) return false;
+      if (q.port && log.port !== q.port) return false;
+      if (q.proxy_id && log.proxy_id !== q.proxy_id) return false;
+      if (q.route_path && log.route_path !== q.route_path) return false;
+      if (q.tenant_id && log.tenant_id !== q.tenant_id) return false;
       if (q.errorClass && log.error_class !== q.errorClass) return false;
       if (q.search) {
         const term = q.search.toLowerCase();
-        const matches = log.path.toLowerCase().includes(term) ||
+        const matches =
+          log.path.toLowerCase().includes(term) ||
           log.provider.toLowerCase().includes(term) ||
           log.model.toLowerCase().includes(term);
         if (!matches) return false;
@@ -79,6 +104,23 @@ export class MemoryStore implements Store {
     };
   }
 
+  async queryUsage(filter: UsageLogQuery): Promise<UsageLogEntry[]> {
+    return this.usageLogs
+      .filter((entry) => {
+        if (filter.since !== undefined && entry.timestamp < filter.since) return false;
+        if (filter.until !== undefined && entry.timestamp > filter.until) return false;
+        if (filter.model && entry.model !== filter.model) return false;
+        if (filter.provider && entry.provider !== filter.provider) return false;
+        if (filter.port && entry.port !== filter.port) return false;
+        if (filter.proxy_id && entry.proxy_id !== filter.proxy_id) return false;
+        if (filter.route_path && entry.route_path !== filter.route_path) return false;
+        if (filter.tenant_id && entry.tenant_id !== filter.tenant_id) return false;
+        if (filter.request_id && entry.request_id !== filter.request_id) return false;
+        return true;
+      })
+      .sort((left, right) => right.timestamp - left.timestamp);
+  }
+
   async deleteLogs(filter: LogFilter | LogQuery): Promise<number> {
     const before = this.requestLogs.length;
     const toKeep = this.requestLogs.filter((log) => {
@@ -89,10 +131,15 @@ export class MemoryStore implements Store {
       if (filter.status !== undefined && log.status !== filter.status) return true;
       const q = filter as LogQuery;
       if (q.model && log.model !== q.model) return true;
+      if (q.port && log.port !== q.port) return true;
+      if (q.proxy_id && log.proxy_id !== q.proxy_id) return true;
+      if (q.route_path && log.route_path !== q.route_path) return true;
+      if (q.tenant_id && log.tenant_id !== q.tenant_id) return true;
       if (q.errorClass && log.error_class !== q.errorClass) return true;
       if (q.search) {
         const term = q.search.toLowerCase();
-        const matches = log.path.toLowerCase().includes(term) ||
+        const matches =
+          log.path.toLowerCase().includes(term) ||
           log.provider.toLowerCase().includes(term) ||
           log.model.toLowerCase().includes(term);
         if (!matches) return true;

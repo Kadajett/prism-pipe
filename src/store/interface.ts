@@ -58,6 +58,14 @@ export interface LogQuery extends LogFilter {
   search?: string;
   /** Filter by model name */
   model?: string;
+  /** Filter by port */
+  port?: string;
+  /** Filter by proxy instance id */
+  proxy_id?: string;
+  /** Filter by matched route path */
+  route_path?: string;
+  /** Filter by tenant id */
+  tenant_id?: string;
   /** Filter by error classification */
   errorClass?: string;
   /** Max results to return (default: 100) */
@@ -75,6 +83,40 @@ export interface UsageAggregate {
   totalOutputTokens: number;
   totalLatencyMs: number;
   avgLatencyMs: number;
+}
+
+/**
+ * Model-scoped usage ledger entry.
+ */
+export interface UsageLogEntry {
+  request_id: string;
+  timestamp: number;
+  model: string;
+  provider?: string;
+  input_tokens: number;
+  output_tokens: number;
+  thinking_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  port?: string;
+  proxy_id?: string;
+  route_path?: string;
+  tenant_id?: string;
+}
+
+/**
+ * Query filter for usage ledger entries.
+ */
+export interface UsageLogQuery {
+  since?: number;
+  until?: number;
+  model?: string;
+  provider?: string;
+  port?: string;
+  proxy_id?: string;
+  route_path?: string;
+  tenant_id?: string;
+  request_id?: string;
 }
 
 /**
@@ -103,6 +145,10 @@ export interface Store {
   countLogs(filter: LogFilter | LogQuery): Promise<number>;
   /** Aggregate token usage across matching logs */
   aggregateUsage(filter: LogFilter | LogQuery): Promise<UsageAggregate>;
+  /** Record model-scoped usage ledger entries */
+  recordUsage(entries: UsageLogEntry[]): Promise<void>;
+  /** Query model-scoped usage ledger entries */
+  queryUsage(filter: UsageLogQuery): Promise<UsageLogEntry[]>;
   /** Delete logs matching a filter (for log rotation/cleanup) */
   deleteLogs(filter: LogFilter | LogQuery): Promise<number>;
   /** Record a cost entry for a tenant */

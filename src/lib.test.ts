@@ -1,115 +1,128 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createPrismPipe, type PrismPipe } from './lib';
+import { PrismPipe, type ProxyInstance } from './lib';
 
-describe('createPrismPipe', () => {
-  it('returns an instance with expected interface', () => {
-    const proxy = createPrismPipe({ port: 0 });
+describe('PrismPipe public API', () => {
+  it('creates a proxy with the expected lifecycle surface', () => {
+    const prism = new PrismPipe();
+    const proxy = prism.createProxy({
+      port: 0,
+      routes: {},
+    });
+
     expect(proxy).toHaveProperty('start');
     expect(proxy).toHaveProperty('stop');
-    expect(proxy).toHaveProperty('port');
-    expect(proxy).toHaveProperty('app');
+    expect(proxy).toHaveProperty('reload');
+    expect(proxy).toHaveProperty('status');
     expect(proxy).toHaveProperty('health');
     expect(typeof proxy.start).toBe('function');
     expect(typeof proxy.stop).toBe('function');
-    expect(typeof proxy.health).toBe('function');
+    expect(typeof proxy.reload).toBe('function');
+    expect(typeof proxy.status).toBe('function');
   });
 
-  it('health() returns stopped status before start', () => {
-    const proxy = createPrismPipe({ port: 0 });
-    const h = proxy.health();
-    expect(h.status).toBe('stopped');
-    expect(h.providers).toEqual([]);
+  it('reports stopped status before start', () => {
+    const prism = new PrismPipe();
+    const proxy = prism.createProxy({
+      port: 0,
+      routes: {},
+    });
+
+    expect(proxy.status().state).toBe('stopped');
   });
 
-  describe('running instance', () => {
-    let proxy: PrismPipe;
+  describe('running proxy instance', () => {
+    let prism: PrismPipe;
+    let proxy: ProxyInstance;
 
     beforeAll(async () => {
-      proxy = await createPrismPipe({
-        port: 0, // random port
+      prism = new PrismPipe({
         logLevel: 'silent',
         storeType: 'memory',
+      });
+      proxy = prism.createProxy({
+        port: 0,
         providers: {
           test: {
+            name: 'test',
             baseUrl: 'http://localhost:9999',
             apiKey: 'test-key',
           },
         },
-        routes: [
-          {
-            path: '/v1/chat/completions',
-            providers: ['test'],
-          },
-        ],
-      }).start();
+        routes: {},
+      });
+
+      await proxy.start();
     });
 
     afterAll(async () => {
-      await proxy.stop();
+      await prism.shutdown();
     });
 
-    it('listens on assigned port', () => {
-      expect(proxy.port).toBeGreaterThan(0);
+    it('listens on an assigned port', () => {
+      expect(proxy.status().port).toBeGreaterThan(0);
     });
 
-    it('health() returns healthy status', () => {
-      const h = proxy.health();
-      expect(h.status).toBe('healthy');
-      expect(h.providers).toEqual(['test']);
+    it('reports healthy status', () => {
+      const health = proxy.health();
+      expect(health.status).toBe('healthy');
     });
 
     it('responds to /health', async () => {
-      const res = await fetch(`http://localhost:${proxy.port}/health`);
-      expect(res.ok).toBe(true);
-      const body = await res.json();
+      const response = await fetch(`http://localhost:${proxy.status().port}/health`);
+      expect(response.ok).toBe(true);
+      const body = await response.json();
       expect(body.status).toBe('ok');
     });
 
     it('responds to /v1/models', async () => {
-      const res = await fetch(`http://localhost:${proxy.port}/v1/models`);
-      expect(res.ok).toBe(true);
-      const body = await res.json();
+      const response = await fetch(`http://localhost:${proxy.status().port}/v1/models`);
+      expect(response.ok).toBe(true);
+      const body = await response.json();
       expect(body.object).toBe('list');
       expect(body.data).toBeInstanceOf(Array);
     });
   });
 
-  describe('multiple instances', () => {
-    let proxy1: PrismPipe;
-    let proxy2: PrismPipe;
+  describe('multiple proxies', () => {
+    let prism: PrismPipe;
+    let proxy1: ProxyInstance;
+    let proxy2: ProxyInstance;
 
     beforeAll(async () => {
-      [proxy1, proxy2] = await Promise.all([
-        createPrismPipe({
-          port: 0,
-          logLevel: 'silent',
-          storeType: 'memory',
-        }).start(),
-        createPrismPipe({
-          port: 0,
-          logLevel: 'silent',
-          storeType: 'memory',
-        }).start(),
-      ]);
+      prism = new PrismPipe({
+        logLevel: 'silent',
+        storeType: 'memory',
+      });
+      proxy1 = prism.createProxy({
+        port: 0,
+        routes: {},
+      });
+      proxy2 = prism.createProxy({
+        port: 0,
+        routes: {},
+      });
+
+      await Promise.all([proxy1.start(), proxy2.start()]);
     });
 
     afterAll(async () => {
-      await Promise.all([proxy1.stop(), proxy2.stop()]);
+      await prism.shutdown();
     });
 
-    it('run on different ports', () => {
-      expect(proxy1.port).not.toBe(proxy2.port);
-      expect(proxy1.port).toBeGreaterThan(0);
-      expect(proxy2.port).toBeGreaterThan(0);
+    it('runs on different ports', () => {
+      expect(proxy1.status().port).not.toBe(proxy2.status().port);
+      expect(proxy1.status().port).toBeGreaterThan(0);
+      expect(proxy2.status().port).toBeGreaterThan(0);
     });
 
     it('both respond independently', async () => {
-      const [r1, r2] = await Promise.all([
-        fetch(`http://localhost:${proxy1.port}/health`),
-        fetch(`http://localhost:${proxy2.port}/health`),
+      const [response1, response2] = await Promise.all([
+        fetch(`http://localhost:${proxy1.status().port}/health`),
+        fetch(`http://localhost:${proxy2.status().port}/health`),
       ]);
-      expect(r1.ok).toBe(true);
-      expect(r2.ok).toBe(true);
+
+      expect(response1.ok).toBe(true);
+      expect(response2.ok).toBe(true);
     });
   });
 });
