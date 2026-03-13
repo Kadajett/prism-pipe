@@ -1,0 +1,83 @@
+port: 3101
+logLevel: info
+requestTimeout: 300000
+
+providers:
+  mercury:
+    name: mercury
+    baseUrl: https://api.inceptionlabs.ai
+    apiKey: ${INCEPTION_API_KEY}
+    format: openai
+
+  opus:
+    name: opus
+    baseUrl: https://api.anthropic.com
+    apiKey: ${ANTHROPIC_API_KEY}
+    format: anthropic
+
+routes:
+  - path: /v1/chat/completions
+    compose:
+      type: chain
+      steps:
+        - name: planner
+          provider: opus
+          model: claude-opus-4-6
+          systemPrompt: |
+            You are a senior software architect. Your job is to PLAN, not code.
+            
+            Given the user's task, produce a clear, ordered plan with:
+            1. What files need to be read first (for context)
+            2. What changes need to be made (specific files, functions, line-level detail)
+            3. What the success criteria are (how to verify it works)
+            4. Anti-patterns to avoid
+            
+            Be specific about file paths relative to the workspace root.
+            Do NOT write code — just plan. The executor will implement.
+          inputTransform: "{{original.lastUserMessage}}"
+          timeout: 60000
+
+        - name: executor
+          provider: mercury
+          model: mercury-2
+          systemPrompt: |
+            You are a fast, precise code executor. You receive a plan from an architect.
+            
+            PLAN:
+            {{steps.planner.content}}
+            
+            Execute EXACTLY what the plan says. Write complete, working code.
+            For each file change, output the COMPLETE file content with clear markers:
+            
+            === FILE: path/to/file.ts ===
+            (complete file content here)
+            === END FILE ===
+            
+            Do not deviate from the plan. Do not add features not in the plan.
+          inputTransform: "Execute this plan:\n\n{{steps.planner.content}}\n\nOriginal task: {{original.lastUserMessage}}"
+          timeout: 60000
+
+        - name: reviewer
+          provider: opus
+          model: claude-opus-4-6
+          systemPrompt: |
+            You are a senior code reviewer. You have:
+            1. The original task
+            2. The architect's plan  
+            3. The executor's implementation
+            
+            Review for: correctness, completeness, edge cases, security, style.
+            If GOOD: summarize what was done.
+            If ISSUES: list them clearly and include "NEEDS_REVISION".
+          inputTransform: |
+            ## Original Task
+            {{original.lastUserMessage}}
+            
+            ## Architect Plan
+            {{steps.planner.content}}
+            
+            ## Executor Implementation
+            {{steps.executor.content}}
+            
+            Review the implementation against the plan and original task.
+          timeout: 60000

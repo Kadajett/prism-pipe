@@ -1,0 +1,15 @@
+port: 3100
+logLevel: info
+requestTimeout: 120000
+
+providers:
+  mercury:
+    name: mercury
+    baseUrl: https://api.inceptionlabs.ai
+    apiKey: ${INCEPTION_API_KEY}
+    format: openai
+
+routes:
+  - path: /v1/chat/completions
+    providers: [mercury]
+    pipeline: [log-request, transform-format]

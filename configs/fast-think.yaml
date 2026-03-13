@@ -1,0 +1,38 @@
+port: 3102
+logLevel: info
+requestTimeout: 120000
+
+providers:
+  mercury:
+    name: mercury
+    baseUrl: https://api.inceptionlabs.ai
+    apiKey: ${INCEPTION_API_KEY}
+    format: openai
+
+routes:
+  - path: /v1/chat/completions
+    compose:
+      type: chain
+      steps:
+        - name: thinker
+          provider: mercury
+          model: mercury-2
+          systemPrompt: |
+            Think step by step about how to solve this task.
+            List the key considerations, potential issues, and your approach.
+            Do NOT write the final answer yet — just think through it.
+          inputTransform: "Think through this problem step by step:\n\n{{original.lastUserMessage}}"
+          timeout: 30000
+
+        - name: executor
+          provider: mercury
+          model: mercury-2
+          systemPrompt: |
+            You previously thought through this problem. Now execute.
+            
+            Your thinking:
+            {{steps.thinker.content}}
+            
+            Now produce the final, complete answer.
+          inputTransform: "Based on your analysis:\n{{steps.thinker.content}}\n\nNow produce the final answer for: {{original.lastUserMessage}}"
+          timeout: 30000
