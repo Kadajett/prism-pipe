@@ -16,6 +16,7 @@ import type {
 } from '../core/types';
 import type { CircuitBreakerRegistry } from '../fallback/circuit-breaker';
 import { createLogMiddleware } from '../middleware/log-request';
+import { createRequestLoggingMiddleware } from '../middleware/request-logging';
 import { createTransformMiddleware } from '../middleware/transform-format';
 import { AgentFactory } from '../network/agent-factory';
 import { IpPool } from '../network/ip-pool';
@@ -108,6 +109,9 @@ export async function startProxyListener(opts: {
     res.setHeader('X-Prism-Version', '0.2.0');
     next();
   });
+
+  // Request logging middleware - logs on response finish
+  app.use(createRequestLoggingMiddleware({ store }));
 
   app.get('/health', (_req, res) => {
     res.json({
