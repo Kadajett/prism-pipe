@@ -1,4 +1,5 @@
-import type { Express, Request, Response } from 'express';
+import type { Express, Router as IRouter, Request, Response } from 'express';
+import express from 'express';
 import type { StatsTracker } from '../admin/routes';
 import { ChainComposer } from '../compose/chain';
 import { ToolRouterComposer } from '../compose/tool-router';
@@ -12,6 +13,10 @@ import type {
   ComposeStepConfig,
   ProviderConfig,
   ResolvedConfig,
+  RouteConfig,
+  RouteConfigObject,
+  RouteHandler,
+  RouteValue,
   UsageInfo,
 } from '../core/types';
 import { PipelineError } from '../core/types';
@@ -57,9 +62,7 @@ interface RequestScope {
  * Detect what format the client is sending (openai or anthropic).
  */
 function detectClientFormat(body: Record<string, unknown>): string {
-  // Anthropic requests have top-level 'system' and content blocks
   if (body.system !== undefined || (body.messages && !body.model?.toString().startsWith('gpt'))) {
-    // Check for Anthropic-style content blocks
     const messages = body.messages as Array<Record<string, unknown>> | undefined;
     if (
       messages?.some(
@@ -73,167 +76,284 @@ function detectClientFormat(body: Record<string, unknown>): string {
       return 'anthropic';
     }
   }
-  // Default to OpenAI format
   return 'openai';
 }
 
+/**
+ * Determine if the routes config is an old-style RouteConfig[] or new Record<string, RouteValue>.
+ */
+function isLegacyRoutes(
+  routes: RouteConfig[] | Record<string, RouteValue>
+): routes is RouteConfig[] {
+  return Array.isArray(routes);
+}
+
+/**
+ * Convert legacy RouteConfig[] to Record<string, RouteValue> for unified processing.
+ */
+function convertLegacyRoutes(routes: RouteConfig[]): Record<string, RouteValue> {
+  const result: Record<string, RouteValue> = {};
+  for (const route of routes) {
+    const configObj: RouteConfigObject = {
+      providers: route.providers,
+      systemPrompt: route.systemPrompt,
+    };
+    if (route.compose) {
+      // Convert ComposeConfig to ExtendedComposeConfig
+      if (route.compose.type === 'chain') {
+        configObj.compose = { type: 'chain', steps: route.compose.steps };
+      } else if (route.compose.type === 'tool-router') {
+        configObj.compose = {
+          type: 'tool-router',
+          primary: route.compose.toolRouter.primary,
+          tools: route.compose.toolRouter.tools,
+          maxRounds: route.compose.toolRouter.maxRounds,
+        };
+      }
+    }
+    if (route.pipeline) {
+      configObj.middleware = route.pipeline;
+    }
+    result[route.path] = configObj;
+  }
+  return result;
+}
+
+/**
+ * Merge parent config into child config for provider inheritance.
+ * Child values override parent values.
+ */
+function mergeParentConfig(parent: RouteConfigObject, child: RouteConfigObject): RouteConfigObject {
+  return {
+    ...child,
+    providers: child.providers ?? parent.providers,
+    systemPrompt: child.systemPrompt ?? parent.systemPrompt,
+    middleware: child.middleware ?? parent.middleware,
+    circuitBreaker: child.circuitBreaker ?? parent.circuitBreaker,
+    retry: child.retry ?? parent.retry,
+    degradation: child.degradation ?? parent.degradation,
+  };
+}
+
 export function setupRoutes(app: Express, opts: RouterOptions) {
+  const { config } = opts;
+
+  // Detect format: legacy RouteConfig[] or new Record<string, RouteValue>
+  const routeMap = isLegacyRoutes(config.routes)
+    ? convertLegacyRoutes(config.routes)
+    : config.routes;
+
+  registerRoutes(app as unknown as IRouter, routeMap, opts, undefined);
+}
+
+/**
+ * Recursively register routes from a Record<string, RouteValue>.
+ * parentConfig provides inherited settings for nested routes.
+ */
+function registerRoutes(
+  appOrRouter: IRouter,
+  routes: Record<string, RouteValue>,
+  opts: RouterOptions,
+  parentConfig: RouteConfigObject | undefined
+) {
+  for (const [path, value] of Object.entries(routes)) {
+    if (typeof value === 'function') {
+      // Function route handler
+      registerFunctionRoute(appOrRouter, path, value, opts, parentConfig);
+    } else {
+      // RouteConfigObject
+      const effectiveConfig = parentConfig ? mergeParentConfig(parentConfig, value) : value;
+
+      if (value.routes) {
+        // Nested routes — create a sub-router and recurse
+        const subRouter = express.Router();
+        registerRoutes(subRouter, value.routes, opts, effectiveConfig);
+        appOrRouter.use(path, subRouter);
+      } else {
+        // Leaf config route — register handler
+        registerConfigRoute(appOrRouter, path, effectiveConfig, opts);
+      }
+    }
+  }
+}
+
+/**
+ * Register a function route handler that receives (req, res, ctx).
+ */
+function registerFunctionRoute(
+  appOrRouter: IRouter,
+  path: string,
+  handler: RouteHandler,
+  opts: RouterOptions,
+  parentConfig: RouteConfigObject | undefined
+) {
+  const { config, stats, store, port, proxyId } = opts;
+
+  appOrRouter.all(path, async (req: Request, res: Response) => {
+    const startTime = Date.now();
+    const requestScope = createRequestScope(req, port, proxyId);
+    const execution = createExecutionState('function', 'custom');
+
+    try {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const canonicalRequest: CanonicalRequest = {
+        model: (body.model as string) ?? 'custom',
+        messages: [],
+      };
+
+      const timeout = createTimeoutBudget(config.requestTimeout);
+      const ctx = new PipelineContext({
+        request: canonicalRequest,
+        config,
+        timeout,
+      });
+
+      ctx.metadata.set('routePath', path);
+      ctx.metadata.set('routeType', 'function');
+
+      // Inject system prompt from parent config
+      if (parentConfig?.systemPrompt && !ctx.request.systemPrompt) {
+        ctx.request.systemPrompt = parentConfig.systemPrompt;
+      }
+
+      const result = await handler(req, res, ctx);
+
+      // If handler returned a RouteResult, serialize it
+      if (result) {
+        const status = result.meta?.status ?? 200;
+        execution.responseStatus = status;
+
+        if (result.meta?.headers) {
+          for (const [key, val] of Object.entries(result.meta.headers)) {
+            res.setHeader(key, val);
+          }
+        }
+
+        if (!res.headersSent) {
+          res.status(status).json(result.data);
+        }
+      } else {
+        // Handler managed the response directly
+        execution.responseStatus = res.statusCode;
+      }
+    } catch (err) {
+      handleRouteError(err, execution, stats, res);
+    } finally {
+      recordRequestMetrics(execution, startTime, req, requestScope, store, stats, path);
+    }
+  });
+}
+
+/**
+ * Register a config-object route (providers, compose, pipeline, etc.).
+ */
+function registerConfigRoute(
+  appOrRouter: IRouter,
+  path: string,
+  routeConfig: RouteConfigObject,
+  opts: RouterOptions
+) {
   const { agentFactory, config, pipeline, port, proxyId, stats, store, transformRegistry } = opts;
 
-  for (const route of config.routes) {
-    app.post(route.path, async (req: Request, res: Response) => {
-      const startTime = Date.now();
-      const requestScope = createRequestScope(req, port, proxyId);
-      const reqId = requestScope.reqId;
-      const execution = createExecutionState('unknown', resolveRequestedModel(req));
-      let usageEntries: UsageLogEntry[] = [];
+  appOrRouter.post(path, async (req: Request, res: Response) => {
+    const startTime = Date.now();
+    const requestScope = createRequestScope(req, port, proxyId);
+    const reqId = requestScope.reqId;
+    const execution = createExecutionState('unknown', resolveRequestedModel(req));
+    let usageEntries: UsageLogEntry[] = [];
 
-      try {
-        const body = req.body as Record<string, unknown>;
-        const clientFormat = detectClientFormat(body);
-        const clientTransformer = transformRegistry.get(clientFormat);
-        const serializer = clientTransformer.responseFromCanonical.bind(clientTransformer);
+    try {
+      const body = req.body as Record<string, unknown>;
+      const clientFormat = detectClientFormat(body);
+      const clientTransformer = transformRegistry.get(clientFormat);
+      const serializer = clientTransformer.responseFromCanonical.bind(clientTransformer);
 
-        // Convert client request to canonical
-        const canonicalRequest: CanonicalRequest = clientTransformer.toCanonical(body);
+      const canonicalRequest: CanonicalRequest = clientTransformer.toCanonical(body);
 
-        // Create pipeline context early so ctx.log is available for feature degradation
-        const timeout = createTimeoutBudget(config.requestTimeout);
-        const ctx = new PipelineContext({
-          request: canonicalRequest,
-          config,
-          timeout,
+      const timeout = createTimeoutBudget(config.requestTimeout);
+      const ctx = new PipelineContext({
+        request: canonicalRequest,
+        config,
+        timeout,
+      });
+
+      // Resolve provider chain
+      const routeProviders = routeConfig.providers ?? [];
+      const providerNames =
+        routeProviders.length > 0 ? routeProviders : Object.keys(config.providers);
+
+      if (providerNames.length === 0) {
+        throw new PipelineError('No providers configured', 'invalid_request', 'router', 400);
+      }
+
+      const providers = providerNames.map((name) =>
+        resolveProvider({
+          clientFormat,
+          clientTransformer,
+          errorStep: 'router',
+          providerRef: name,
+          providers: config.providers,
+          transformRegistry,
+          log: ctx.log,
+        })
+      );
+
+      const primaryProvider = providers[0];
+      const providerFormat = primaryProvider.transformer.provider;
+
+      ctx.metadata.set('clientFormat', clientFormat);
+      ctx.metadata.set('providerFormat', providerFormat);
+      ctx.metadata.set('provider', primaryProvider.config.name);
+      ctx.metadata.set('routePath', path);
+
+      // Inject system prompt from route config
+      if (routeConfig.systemPrompt && !ctx.request.systemPrompt) {
+        ctx.request.systemPrompt = routeConfig.systemPrompt;
+      }
+
+      // Run pre-flight pipeline
+      await pipeline.execute(ctx);
+
+      // If pipeline set a response (e.g., cache hit), return it
+      if (ctx.response) {
+        usageEntries = respondWithCanonicalResponse({
+          canonicalResponse: ctx.response,
+          composeSteps: undefined,
+          execution,
+          fallbackUsed: false,
+          port: requestScope.port,
+          provider: primaryProvider.config.name,
+          proxyId: requestScope.proxyId,
+          reqId,
+          res,
+          routePath: path,
+          serializer,
+          tenantId: requestScope.tenantId,
+          totalMs: Date.now() - startTime,
+          timestamp: startTime,
+          upstreamLatencyMs: 0,
         });
+        return;
+      }
 
-        // Resolve provider chain
-        const providerNames =
-          route.providers.length > 0 ? route.providers : Object.keys(config.providers);
+      // ─── Compose route handling ───
+      if (routeConfig.compose) {
+        if (routeConfig.compose.type === 'tool-router') {
+          const toolRouter = new ToolRouterComposer(
+            {
+              primary: routeConfig.compose.primary ?? '',
+              maxRounds: routeConfig.compose.maxRounds,
+              tools: routeConfig.compose.tools ?? {},
+            },
+            ctx.log
+          );
 
-        if (providerNames.length === 0) {
-          throw new PipelineError('No providers configured', 'invalid_request', 'router', 400);
-        }
-
-        const providers = providerNames.map((name) =>
-          resolveProvider({
-            clientFormat,
-            clientTransformer,
-            errorStep: 'router',
-            providerRef: name,
-            providers: config.providers,
-            transformRegistry,
-            log: ctx.log,
-          })
-        );
-
-        // Determine target provider format
-        const primaryProvider = providers[0];
-        const providerFormat = primaryProvider.transformer.provider;
-
-        ctx.metadata.set('clientFormat', clientFormat);
-        ctx.metadata.set('providerFormat', providerFormat);
-        ctx.metadata.set('provider', primaryProvider.config.name);
-        ctx.metadata.set('routePath', route.path);
-
-        // Inject system prompt from route config
-        if (route.systemPrompt && !ctx.request.systemPrompt) {
-          ctx.request.systemPrompt = route.systemPrompt;
-        }
-
-        // Run pre-flight pipeline
-        await pipeline.execute(ctx);
-
-        // If pipeline set a response (e.g., cache hit), return it
-        if (ctx.response) {
-          usageEntries = respondWithCanonicalResponse({
-            canonicalResponse: ctx.response,
-            composeSteps: undefined,
-            execution,
-            fallbackUsed: false,
-            port: requestScope.port,
-            provider: primaryProvider.config.name,
-            proxyId: requestScope.proxyId,
-            reqId,
-            res,
-            routePath: route.path,
-            serializer,
-            tenantId: requestScope.tenantId,
-            totalMs: Date.now() - startTime,
-            timestamp: startTime,
-            upstreamLatencyMs: 0,
-          });
-          return;
-        }
-
-        // ─── Compose route handling ───
-        if (route.compose) {
-          if (route.compose.type === 'tool-router') {
-            // Tool router composition
-            const toolRouterCfg = route.compose.toolRouter;
-            const toolRouter = new ToolRouterComposer(
-              {
-                primary: toolRouterCfg.primary,
-                maxRounds: toolRouterCfg.maxRounds,
-                tools: toolRouterCfg.tools,
-              },
-              ctx.log
-            );
-
-            const providerCall = async (provider: string, request: CanonicalRequest) => {
-              const resolvedProvider = resolveProvider({
-                clientFormat,
-                clientTransformer,
-                errorStep: 'tool_router',
-                providerRef: provider,
-                providers: config.providers,
-                transformRegistry,
-                log: ctx.log,
-              });
-
-              const providerBody = resolvedProvider.transformer.fromCanonical(request);
-              const result = await rawCallProvider({
-                providerConfig: resolvedProvider.config,
-                transformer: resolvedProvider.transformer,
-                body: providerBody,
-                timeout,
-                agent: agentFactory?.getAgent(resolvedProvider.agentName),
-              });
-              return result.response;
-            };
-
-            const result = await toolRouter.execute(canonicalRequest, providerCall);
-            const totalMs = Date.now() - startTime;
-            usageEntries = respondWithCanonicalResponse({
-              canonicalResponse: result,
-              composeSteps: undefined,
-              execution,
-              fallbackUsed: false,
-              port: requestScope.port,
-              provider: 'tool-router',
-              proxyId: requestScope.proxyId,
-              reqId,
-              res,
-              routePath: route.path,
-              serializer,
-              tenantId: requestScope.tenantId,
-              totalMs: Date.now() - startTime,
-              timestamp: startTime,
-              upstreamLatencyMs: 0,
-            });
-
-            ctx.log.info('tool-router request completed', { totalMs });
-            return;
-          }
-
-          // Chain composition (existing)
-          const composer = new ChainComposer();
-
-          // Build CallProviderFn that resolves provider by name
-          const callProviderFn: CallProviderFn = async (request, providerName, timeout) => {
+          const providerCall = async (provider: string, request: CanonicalRequest) => {
             const resolvedProvider = resolveProvider({
               clientFormat,
               clientTransformer,
-              errorStep: 'compose_router',
-              providerRef: providerName,
+              errorStep: 'tool_router',
+              providerRef: provider,
               providers: config.providers,
               transformRegistry,
               log: ctx.log,
@@ -250,8 +370,57 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
             return result.response;
           };
 
-          // Map config steps to CompositionStep[]
-          const steps: CompositionStep[] = route.compose.steps.map((s: ComposeStepConfig) => ({
+          const result = await toolRouter.execute(canonicalRequest, providerCall);
+          const totalMs = Date.now() - startTime;
+          usageEntries = respondWithCanonicalResponse({
+            canonicalResponse: result,
+            composeSteps: undefined,
+            execution,
+            fallbackUsed: false,
+            port: requestScope.port,
+            provider: 'tool-router',
+            proxyId: requestScope.proxyId,
+            reqId,
+            res,
+            routePath: path,
+            serializer,
+            tenantId: requestScope.tenantId,
+            totalMs,
+            timestamp: startTime,
+            upstreamLatencyMs: 0,
+          });
+
+          ctx.log.info('tool-router request completed', { totalMs });
+          return;
+        }
+
+        // Chain composition
+        const composer = new ChainComposer();
+
+        const callProviderFn: CallProviderFn = async (request, providerName, timeout) => {
+          const resolvedProvider = resolveProvider({
+            clientFormat,
+            clientTransformer,
+            errorStep: 'compose_router',
+            providerRef: providerName,
+            providers: config.providers,
+            transformRegistry,
+            log: ctx.log,
+          });
+
+          const providerBody = resolvedProvider.transformer.fromCanonical(request);
+          const result = await rawCallProvider({
+            providerConfig: resolvedProvider.config,
+            transformer: resolvedProvider.transformer,
+            body: providerBody,
+            timeout,
+            agent: agentFactory?.getAgent(resolvedProvider.agentName),
+          });
+          return result.response;
+        };
+
+        const steps: CompositionStep[] = (routeConfig.compose.steps ?? []).map(
+          (s: ComposeStepConfig) => ({
             name: s.name,
             provider: s.provider,
             model: s.model,
@@ -260,242 +429,276 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
             timeout: s.timeout,
             onError: s.onError,
             defaultContent: s.defaultContent,
-          }));
+          })
+        );
 
-          const result = await composer.execute(ctx, steps, callProviderFn);
+        const result = await composer.execute(ctx, steps, callProviderFn);
 
-          const totalMs = Date.now() - startTime;
-          execution.composeSteps = result.steps.length;
-          execution.provider = 'compose';
-          if (result.finalResponse) {
-            usageEntries = respondWithCanonicalResponse({
-              canonicalResponse: result.finalResponse,
-              composeSteps: result.steps.length,
-              execution,
-              fallbackUsed: false,
-              port: requestScope.port,
-              provider: 'compose',
-              proxyId: requestScope.proxyId,
-              reqId,
-              res,
-              routePath: route.path,
-              serializer,
-              tenantId: requestScope.tenantId,
-              totalMs,
-              timestamp: startTime,
-              upstreamLatencyMs: 0,
-            });
-            res.setHeader('X-Prism-Compose-Steps', String(result.steps.length));
-          } else {
-            // Partial/errored — still normalize through the canonical response path.
-            const lastSuccess = [...result.steps]
-              .reverse()
-              .find((s) => s.status === 'success' || s.status === 'defaulted');
-            const fallbackResponse: CanonicalResponse = {
-              id: `compose-${reqId}`,
-              model: 'compose',
-              content: [{ type: 'text', text: lastSuccess?.content ?? '' }],
-              stopReason: 'end',
-              usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-            };
-
-            usageEntries = respondWithCanonicalResponse({
-              canonicalResponse: fallbackResponse,
-              composeSteps: result.steps.length,
-              execution,
-              fallbackUsed: false,
-              port: requestScope.port,
-              provider: 'compose',
-              proxyId: requestScope.proxyId,
-              reqId,
-              res,
-              routePath: route.path,
-              serializer,
-              tenantId: requestScope.tenantId,
-              totalMs,
-              timestamp: startTime,
-              upstreamLatencyMs: 0,
-            });
-            res.setHeader('X-Prism-Compose-Steps', String(result.steps.length));
-          }
-
-          ctx.log.info('compose request completed', {
-            steps: result.steps.map((s) => ({ name: s.name, status: s.status, ms: s.durationMs })),
+        const totalMs = Date.now() - startTime;
+        execution.composeSteps = result.steps.length;
+        execution.provider = 'compose';
+        if (result.finalResponse) {
+          usageEntries = respondWithCanonicalResponse({
+            canonicalResponse: result.finalResponse,
+            composeSteps: result.steps.length,
+            execution,
+            fallbackUsed: false,
+            port: requestScope.port,
+            provider: 'compose',
+            proxyId: requestScope.proxyId,
+            reqId,
+            res,
+            routePath: path,
+            serializer,
+            tenantId: requestScope.tenantId,
             totalMs,
+            timestamp: startTime,
+            upstreamLatencyMs: 0,
           });
-          return;
+          res.setHeader('X-Prism-Compose-Steps', String(result.steps.length));
+        } else {
+          const lastSuccess = [...result.steps]
+            .reverse()
+            .find((s) => s.status === 'success' || s.status === 'defaulted');
+          const fallbackResponse: CanonicalResponse = {
+            id: `compose-${reqId}`,
+            model: 'compose',
+            content: [{ type: 'text', text: lastSuccess?.content ?? '' }],
+            stopReason: 'end',
+            usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+          };
+
+          usageEntries = respondWithCanonicalResponse({
+            canonicalResponse: fallbackResponse,
+            composeSteps: result.steps.length,
+            execution,
+            fallbackUsed: false,
+            port: requestScope.port,
+            provider: 'compose',
+            proxyId: requestScope.proxyId,
+            reqId,
+            res,
+            routePath: path,
+            serializer,
+            tenantId: requestScope.tenantId,
+            totalMs,
+            timestamp: startTime,
+            upstreamLatencyMs: 0,
+          });
+          res.setHeader('X-Prism-Compose-Steps', String(result.steps.length));
         }
 
-        // Convert canonical to provider format for the call
-        const providerBody = primaryProvider.transformer.fromCanonical(ctx.request);
+        ctx.log.info('compose request completed', {
+          steps: result.steps.map((s) => ({
+            name: s.name,
+            status: s.status,
+            ms: s.durationMs,
+          })),
+          totalMs,
+        });
+        return;
+      }
 
-        // Call provider (with fallback chain)
-        if (ctx.request.stream) {
-          const result = await executeFallbackChain({
-            providers,
-            body: providerBody,
-            stream: true,
-            timeout,
-            log: ctx.log,
-            agent: agentFactory?.getAgent(primaryProvider.config.name),
-          });
+      // Convert canonical to provider format for the call
+      const providerBody = primaryProvider.transformer.fromCanonical(ctx.request);
 
-          if ('chunks' in result) {
-            const preStreamMs = Date.now() - startTime;
-            const fallbackUsed =
-              providers.length > 1 && result.provider !== primaryProvider.config.name;
-            execution.provider = result.provider;
-            execution.model = ctx.request.model;
-            execution.responseStatus = 200;
-            execution.fallbackUsed = fallbackUsed;
-            execution.upstreamLatencyMs = Math.round(result.latencyMs);
-            setResponseHeaders(res, reqId, result.provider, preStreamMs);
-            if (fallbackUsed) {
-              res.setHeader('X-Prism-Fallback-Used', 'true');
-            }
-            res.setHeader('X-Prism-Upstream-Latency', String(Math.round(result.latencyMs)));
-
-            const streamUsage = await writeSSEStream(res, result.chunks, clientTransformer);
-            if (streamUsage) {
-              execution.usageInput = streamUsage.inputTokens;
-              execution.usageOutput = streamUsage.outputTokens;
-              usageEntries = buildUsageEntries({
-                model: ctx.request.model,
-                usage: streamUsage,
-                port: requestScope.port,
-                provider: result.provider,
-                proxyId: requestScope.proxyId,
-                requestId: reqId,
-                routePath: route.path,
-                tenantId: requestScope.tenantId,
-                timestamp: startTime,
-              });
-            }
-
-            const totalMs = Date.now() - startTime;
-            ctx.log.info('request completed', {
-              model: ctx.request.model,
-              provider: result.provider,
-              latency: totalMs,
-              latency_upstream_ms: Math.round(result.latencyMs),
-              latency_ttfb_ms: Math.round(result.ttfbMs),
-              latency_total_ms: totalMs,
-              stream: true,
-            });
-            ctx.metrics.histogram('request.latency_ms', totalMs);
-            ctx.metrics.histogram('request.upstream_latency_ms', result.latencyMs);
-            ctx.metrics.histogram('request.ttfb_ms', result.ttfbMs);
-
-            return;
-          }
-        }
-
+      // Call provider (with fallback chain)
+      if (ctx.request.stream) {
         const result = await executeFallbackChain({
           providers,
           body: providerBody,
-          stream: false,
+          stream: true,
           timeout,
           log: ctx.log,
           agent: agentFactory?.getAgent(primaryProvider.config.name),
         });
 
-        if ('response' in result) {
-          ctx.response = result.response;
-          ctx.metadata.set('provider', result.provider);
+        if ('chunks' in result) {
+          const preStreamMs = Date.now() - startTime;
           const fallbackUsed =
             providers.length > 1 && result.provider !== primaryProvider.config.name;
-          usageEntries = respondWithCanonicalResponse({
-            canonicalResponse: result.response,
-            composeSteps: undefined,
-            execution,
-            fallbackUsed,
-            port: requestScope.port,
-            provider: result.provider,
-            proxyId: requestScope.proxyId,
-            reqId,
-            res,
-            routePath: route.path,
-            serializer,
-            tenantId: requestScope.tenantId,
-            totalMs: Date.now() - startTime,
-            timestamp: startTime,
-            upstreamLatencyMs: Math.round(result.latencyMs),
-          });
-
-          ctx.log.info('request completed', {
-            model: ctx.response.model ?? ctx.request.model,
-            provider: result.provider,
-            latency: Date.now() - startTime,
-            latency_upstream_ms: Math.round(result.latencyMs),
-            latency_total_ms: Date.now() - startTime,
-            inputTokens: ctx.response.usage?.inputTokens,
-            outputTokens: ctx.response.usage?.outputTokens,
-            stopReason: ctx.response.stopReason,
-          });
-          ctx.metrics.histogram('request.latency_ms', Date.now() - startTime);
-          ctx.metrics.histogram('request.upstream_latency_ms', result.latencyMs);
-        }
-      } catch (err) {
-        if (err instanceof PipelineError) {
-          execution.responseStatus = err.statusCode;
-          execution.errorClass = err.code;
-          stats?.recordError();
-          res.status(err.statusCode).json({
-            error: { message: err.message, code: err.code, step: err.step },
-          });
-        } else {
-          execution.responseStatus = 500;
-          execution.errorClass = 'unknown';
-          stats?.recordError();
-          console.error('Unhandled route error:', err);
-          res.status(500).json({
-            error: { message: 'Internal server error', code: 'unknown' },
-          });
-        }
-      } finally {
-        const latencyMs = Date.now() - startTime;
-
-        // Record stats
-        if (stats) {
-          stats.recordRequest(execution.provider, latencyMs, req.tenant?.tenantId);
-          if (execution.usageInput > 0 || execution.usageOutput > 0) {
-            stats.recordTokens(execution.usageInput, execution.usageOutput);
+          execution.provider = result.provider;
+          execution.model = ctx.request.model;
+          execution.responseStatus = 200;
+          execution.fallbackUsed = fallbackUsed;
+          execution.upstreamLatencyMs = Math.round(result.latencyMs);
+          setResponseHeaders(res, reqId, result.provider, preStreamMs);
+          if (fallbackUsed) {
+            res.setHeader('X-Prism-Fallback-Used', 'true');
           }
-        }
+          res.setHeader('X-Prism-Upstream-Latency', String(Math.round(result.latencyMs)));
 
-        // Log request to store
-        if (store) {
-          store
-            .logRequest({
-              request_id: reqId,
-              timestamp: startTime,
-              method: req.method,
-              path: req.path,
-              provider: execution.provider,
-              model: execution.model,
-              status: execution.responseStatus,
-              latency_ms: latencyMs,
-              input_tokens: execution.usageInput,
-              output_tokens: execution.usageOutput,
-              error_class: execution.errorClass,
-              source_ip: req.ip ?? req.socket.remoteAddress ?? 'unknown',
+          const streamUsage = await writeSSEStream(res, result.chunks, clientTransformer);
+          if (streamUsage) {
+            execution.usageInput = streamUsage.inputTokens;
+            execution.usageOutput = streamUsage.outputTokens;
+            usageEntries = buildUsageEntries({
+              model: ctx.request.model,
+              usage: streamUsage,
               port: requestScope.port,
-              proxy_id: requestScope.proxyId,
-              route_path: route.path,
-              tenant_id: requestScope.tenantId,
-              compose_steps: execution.composeSteps,
-              fallback_used: execution.fallbackUsed,
-              upstream_latency_ms: execution.upstreamLatencyMs,
-            })
-            .catch((logErr) => {
-              console.error('Failed to log request to store:', logErr);
+              provider: result.provider,
+              proxyId: requestScope.proxyId,
+              requestId: reqId,
+              routePath: path,
+              tenantId: requestScope.tenantId,
+              timestamp: startTime,
             });
+          }
 
-          store.recordUsage(usageEntries).catch((logErr) => {
-            console.error('Failed to log usage entries to store:', logErr);
+          const totalMs = Date.now() - startTime;
+          ctx.log.info('request completed', {
+            model: ctx.request.model,
+            provider: result.provider,
+            latency: totalMs,
+            latency_upstream_ms: Math.round(result.latencyMs),
+            latency_ttfb_ms: Math.round(result.ttfbMs),
+            latency_total_ms: totalMs,
+            stream: true,
           });
+          ctx.metrics.histogram('request.latency_ms', totalMs);
+          ctx.metrics.histogram('request.upstream_latency_ms', result.latencyMs);
+          ctx.metrics.histogram('request.ttfb_ms', result.ttfbMs);
+
+          return;
         }
       }
+
+      const result = await executeFallbackChain({
+        providers,
+        body: providerBody,
+        stream: false,
+        timeout,
+        log: ctx.log,
+        agent: agentFactory?.getAgent(primaryProvider.config.name),
+      });
+
+      if ('response' in result) {
+        ctx.response = result.response;
+        ctx.metadata.set('provider', result.provider);
+        const fallbackUsed =
+          providers.length > 1 && result.provider !== primaryProvider.config.name;
+        usageEntries = respondWithCanonicalResponse({
+          canonicalResponse: result.response,
+          composeSteps: undefined,
+          execution,
+          fallbackUsed,
+          port: requestScope.port,
+          provider: result.provider,
+          proxyId: requestScope.proxyId,
+          reqId,
+          res,
+          routePath: path,
+          serializer,
+          tenantId: requestScope.tenantId,
+          totalMs: Date.now() - startTime,
+          timestamp: startTime,
+          upstreamLatencyMs: Math.round(result.latencyMs),
+        });
+
+        ctx.log.info('request completed', {
+          model: ctx.response.model ?? ctx.request.model,
+          provider: result.provider,
+          latency: Date.now() - startTime,
+          latency_upstream_ms: Math.round(result.latencyMs),
+          latency_total_ms: Date.now() - startTime,
+          inputTokens: ctx.response.usage?.inputTokens,
+          outputTokens: ctx.response.usage?.outputTokens,
+          stopReason: ctx.response.stopReason,
+        });
+        ctx.metrics.histogram('request.latency_ms', Date.now() - startTime);
+        ctx.metrics.histogram('request.upstream_latency_ms', result.latencyMs);
+      }
+    } catch (err) {
+      handleRouteError(err, execution, stats, res);
+    } finally {
+      recordRequestMetrics(
+        execution,
+        startTime,
+        req,
+        requestScope,
+        store,
+        stats,
+        path,
+        usageEntries
+      );
+    }
+  });
+}
+
+// ─── Shared helpers ───
+
+function handleRouteError(
+  err: unknown,
+  execution: RouteExecutionState,
+  stats: StatsTracker | undefined,
+  res: Response
+) {
+  if (err instanceof PipelineError) {
+    execution.responseStatus = err.statusCode;
+    execution.errorClass = err.code;
+    stats?.recordError();
+    res.status(err.statusCode).json({
+      error: { message: err.message, code: err.code, step: err.step },
+    });
+  } else {
+    execution.responseStatus = 500;
+    execution.errorClass = 'unknown';
+    stats?.recordError();
+    console.error('Unhandled route error:', err);
+    res.status(500).json({
+      error: { message: 'Internal server error', code: 'unknown' },
+    });
+  }
+}
+
+function recordRequestMetrics(
+  execution: RouteExecutionState,
+  startTime: number,
+  req: Request,
+  requestScope: RequestScope,
+  store: Store | undefined,
+  stats: StatsTracker | undefined,
+  routePath: string,
+  usageEntries: UsageLogEntry[] = []
+) {
+  const latencyMs = Date.now() - startTime;
+
+  if (stats) {
+    stats.recordRequest(execution.provider, latencyMs, req.tenant?.tenantId);
+    if (execution.usageInput > 0 || execution.usageOutput > 0) {
+      stats.recordTokens(execution.usageInput, execution.usageOutput);
+    }
+  }
+
+  if (store) {
+    store
+      .logRequest({
+        request_id: requestScope.reqId,
+        timestamp: startTime,
+        method: req.method,
+        path: req.path,
+        provider: execution.provider,
+        model: execution.model,
+        status: execution.responseStatus,
+        latency_ms: latencyMs,
+        input_tokens: execution.usageInput,
+        output_tokens: execution.usageOutput,
+        error_class: execution.errorClass,
+        source_ip: req.ip ?? req.socket.remoteAddress ?? 'unknown',
+        port: requestScope.port,
+        proxy_id: requestScope.proxyId,
+        route_path: routePath,
+        tenant_id: requestScope.tenantId,
+        compose_steps: execution.composeSteps,
+        fallback_used: execution.fallbackUsed,
+        upstream_latency_ms: execution.upstreamLatencyMs,
+      })
+      .catch((logErr) => {
+        console.error('Failed to log request to store:', logErr);
+      });
+
+    store.recordUsage(usageEntries).catch((logErr) => {
+      console.error('Failed to log usage entries to store:', logErr);
     });
   }
 }

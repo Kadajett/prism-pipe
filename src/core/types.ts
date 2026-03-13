@@ -219,7 +219,7 @@ export interface ResolvedConfig {
   logLevel: string;
   requestTimeout: number;
   providers: Record<string, ProviderConfig>;
-  routes: RouteConfig[];
+  routes: RouteConfig[] | Record<string, RouteValue>;
 }
 
 // ─── Logger / Metrics interfaces ───
