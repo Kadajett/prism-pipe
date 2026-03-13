@@ -41,18 +41,21 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
 function routeArrayToMap(routes: typeof config.routes): ProxyDefinition['routes'] {
-  if (routes.length === 0) {
-    return {};
+  if (Array.isArray(routes)) {
+    if (routes.length === 0) {
+      return {};
+    }
+    return Object.fromEntries(
+      routes.map((route) => [
+        route.path,
+        {
+          providers: route.providers,
+          systemPrompt: route.systemPrompt,
+          compose: route.compose as RouteConfigObject['compose'],
+        } satisfies RouteValue,
+      ])
+    );
   }
-
-  return Object.fromEntries(
-    routes.map((route) => [
-      route.path,
-      {
-        providers: route.providers,
-        systemPrompt: route.systemPrompt,
-        compose: route.compose as RouteConfigObject['compose'],
-      } satisfies RouteValue,
-    ])
-  );
+  // Already a Record<string, RouteValue>
+  return routes;
 }
