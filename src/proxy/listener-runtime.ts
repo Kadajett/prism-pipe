@@ -62,6 +62,7 @@ export function getPrimaryPort(portInfo: PortInfo | undefined, fallbackPort: num
 export async function startProxyListener(opts: {
   circuitBreakers: CircuitBreakerRegistry;
   definition: ProxyDefinition;
+  emitError?: (event: import('../core/types').ProxyErrorEvent) => void;
   logger: ScopedLogger;
   plugins: PluginRegistry;
   proxyId: string;
@@ -73,6 +74,7 @@ export async function startProxyListener(opts: {
   const {
     circuitBreakers,
     definition,
+    emitError,
     logger,
     plugins,
     proxyId,
@@ -216,6 +218,7 @@ export async function startProxyListener(opts: {
         res,
         routePath,
         runtime: {
+          emitError,
           logger,
           proxyId,
           resolveModel,
@@ -230,6 +233,7 @@ export async function startProxyListener(opts: {
   setupRoutes(app, {
     agentFactory,
     config: resolvedConfig,
+    emitError,
     pipeline,
     port: portStr,
     proxyId,

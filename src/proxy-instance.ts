@@ -123,6 +123,7 @@ export class ProxyInstance {
     this.portInfo = await startProxyListener({
       circuitBreakers: this.circuitBreakers,
       definition: this.definition,
+      emitError: (event) => this.emitError(event),
       logger: this.logger,
       plugins: this.plugins,
       proxyId: this.id,
@@ -312,12 +313,10 @@ export class ProxyInstance {
     });
   }
 
-  // ─── Private ───
-
   /**
-   * Emit an error event to all registered handlers.
+   * Emit an error event to proxy-level handlers, then bubble to parent.
    */
-  private emitError(event: ProxyErrorEvent): void {
+  emitError(event: ProxyErrorEvent): void {
     for (const handler of this.errorHandlers) {
       try {
         handler(event);

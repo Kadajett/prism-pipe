@@ -11,6 +11,7 @@ import type {
   CanonicalResponse,
   ComposeStepConfig,
   ProviderConfig,
+  ProxyErrorEvent,
   ResolvedConfig,
   UsageInfo,
 } from '../core/types';
@@ -32,6 +33,8 @@ export interface RouterOptions {
   agentFactory?: AgentFactory;
   proxyId?: string;
   port?: string;
+  /** Callback to emit error events to the proxy/prism error handler chain */
+  emitError?: (event: ProxyErrorEvent) => void;
 }
 
 interface RouteExecutionState {
@@ -78,7 +81,17 @@ function detectClientFormat(body: Record<string, unknown>): string {
 }
 
 export function setupRoutes(app: Express, opts: RouterOptions) {
-  const { agentFactory, config, pipeline, port, proxyId, stats, store, transformRegistry } = opts;
+  const {
+    agentFactory,
+    config,
+    emitError,
+    pipeline,
+    port,
+    proxyId,
+    stats,
+    store,
+    transformRegistry,
+  } = opts;
 
   for (const route of config.routes) {
     app.post(route.path, async (req: Request, res: Response) => {
@@ -440,6 +453,19 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
           execution.responseStatus = err.statusCode;
           execution.errorClass = err.code;
           stats?.recordError();
+
+          emitError?.({
+            error: err,
+            errorClass: err.code,
+            context: {
+              port: requestScope.port,
+              route: route.path,
+              requestId: requestScope.reqId,
+              provider: execution.provider !== 'unknown' ? execution.provider : undefined,
+              tenantId: requestScope.tenantId,
+            },
+          });
+
           res.status(err.statusCode).json({
             error: { message: err.message, code: err.code, step: err.step },
           });
@@ -447,6 +473,20 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
           execution.responseStatus = 500;
           execution.errorClass = 'unknown';
           stats?.recordError();
+
+          const errorObj = err instanceof Error ? err : new Error(String(err));
+          emitError?.({
+            error: errorObj,
+            errorClass: 'unknown',
+            context: {
+              port: requestScope.port,
+              route: route.path,
+              requestId: requestScope.reqId,
+              provider: execution.provider !== 'unknown' ? execution.provider : undefined,
+              tenantId: requestScope.tenantId,
+            },
+          });
+
           console.error('Unhandled route error:', err);
           res.status(500).json({
             error: { message: 'Internal server error', code: 'unknown' },

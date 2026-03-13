@@ -18,6 +18,7 @@ interface FunctionRouteUsageTotals {
 }
 
 interface FunctionRouteRuntime {
+  emitError?: (event: import('../core/types').ProxyErrorEvent) => void;
   logger: ScopedLogger;
   proxyId: string;
   resolveModel: (name: string) => ModelDefinition | undefined;
@@ -129,6 +130,20 @@ export async function executeFunctionRoute(opts: {
     }
 
     runtime.stats.recordError();
+
+    const errorObj = error instanceof Error ? error : new Error(String(error));
+    runtime.emitError?.({
+      error: errorObj,
+      errorClass: errorClass ?? 'unknown',
+      context: {
+        port: opts.port,
+        route: opts.routePath,
+        requestId: reqId,
+        provider,
+        tenantId: req.tenant?.tenantId,
+      },
+    });
+
     res.status(responseStatus).json({
       error: {
         message: error instanceof Error ? error.message : 'Internal server error',

@@ -188,5 +188,198 @@ describe('PrismPipe', () => {
       expect(events).toHaveLength(1);
       expect(events[0].error.message).toBe('test');
     });
+
+    it('proxy-level error handler receives events before global', () => {
+      const prism = new PrismPipe();
+      const order: string[] = [];
+
+      const proxy = prism.createProxy({ port: 0, routes: {} });
+
+      proxy.onError(() => order.push('proxy'));
+      prism.onError(() => order.push('global'));
+
+      proxy.emitError({
+        error: new Error('test'),
+        errorClass: 'unknown',
+        context: {},
+      });
+
+      expect(order).toEqual(['proxy', 'global']);
+    });
+
+    it('error handler exceptions do not crash the proxy', () => {
+      const prism = new PrismPipe();
+      const proxy = prism.createProxy({ port: 0, routes: {} });
+
+      proxy.onError(() => {
+        throw new Error('handler crash');
+      });
+
+      const received: ProxyErrorEvent[] = [];
+      prism.onError((e) => received.push(e));
+
+      // Should not throw
+      proxy.emitError({
+        error: new Error('original'),
+        errorClass: 'unknown',
+        context: {},
+      });
+
+      // Global handler still called despite proxy handler crash
+      expect(received).toHaveLength(1);
+      expect(received[0].error.message).toBe('original');
+    });
+  });
+
+  describe('error bubbling via live request', () => {
+    let prism: PrismPipe;
+    let proxy: ProxyInstance;
+
+    afterAll(async () => {
+      await prism.shutdown();
+    });
+
+    it('errors from route requests bubble to proxy and global handlers', async () => {
+      prism = new PrismPipe({ storeType: 'memory' });
+      const proxyEvents: ProxyErrorEvent[] = [];
+      const globalEvents: ProxyErrorEvent[] = [];
+
+      proxy = prism.createProxy({
+        port: 0,
+        providers: {
+          broken: {
+            name: 'broken',
+            baseUrl: 'http://localhost:1', // unreachable
+            apiKey: 'test-key',
+          },
+        },
+        routes: {
+          '/v1/chat/completions': {
+            providers: ['broken'],
+          },
+        },
+      });
+
+      proxy.onError((e) => proxyEvents.push(e));
+      prism.onError((e) => globalEvents.push(e));
+
+      await proxy.start();
+
+      const res = await fetch(`http://localhost:${proxy.status().port}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'test-model',
+          messages: [{ role: 'user', content: 'hi' }],
+        }),
+      });
+
+      // Request should fail
+      expect(res.ok).toBe(false);
+
+      // Error should have bubbled to both handlers
+      expect(proxyEvents.length).toBeGreaterThanOrEqual(1);
+      expect(globalEvents.length).toBeGreaterThanOrEqual(1);
+      expect(proxyEvents[0].context.route).toBe('/v1/chat/completions');
+      expect(proxyEvents[0].context.requestId).toBeDefined();
+    });
+  });
+
+  describe('queryable logs', () => {
+    let prism: PrismPipe;
+    let proxy: ProxyInstance;
+
+    afterAll(async () => {
+      await prism.shutdown();
+    });
+
+    it('getLogs returns filtered entries at both prism and proxy level', async () => {
+      prism = new PrismPipe({ storeType: 'memory' });
+      proxy = prism.createProxy({
+        port: 0,
+        providers: {
+          test: {
+            name: 'test',
+            baseUrl: 'http://localhost:1',
+            apiKey: 'key',
+          },
+        },
+        routes: {
+          '/v1/chat/completions': { providers: ['test'] },
+        },
+      });
+      await proxy.start();
+
+      // Make a request (will fail, but gets logged)
+      await fetch(`http://localhost:${proxy.status().port}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'test', messages: [{ role: 'user', content: 'hi' }] }),
+      });
+
+      // Wait for async log write
+      await new Promise((r) => setTimeout(r, 100));
+
+      const proxyLogs = await proxy.getLogs();
+      const globalLogs = await prism.getLogs();
+
+      expect(proxyLogs.length).toBeGreaterThanOrEqual(1);
+      expect(globalLogs.length).toBeGreaterThanOrEqual(1);
+      // Proxy logs should be scoped
+      expect(proxyLogs[0].proxy_id).toBe(proxy.id);
+    });
+  });
+
+  describe('usage aggregation', () => {
+    it('getUsage returns correct structure', async () => {
+      const prism = new PrismPipe({ storeType: 'memory' });
+      await prism.initStore();
+
+      // Seed usage data directly
+      await prism.store.recordUsage([
+        {
+          request_id: 'r1',
+          timestamp: Date.now(),
+          model: 'gpt-4',
+          provider: 'openai',
+          input_tokens: 100,
+          output_tokens: 50,
+          thinking_tokens: 0,
+          cache_read_tokens: 0,
+          cache_write_tokens: 0,
+          proxy_id: 'p1',
+          route_path: '/v1/chat/completions',
+        },
+        {
+          request_id: 'r2',
+          timestamp: Date.now(),
+          model: 'claude-3',
+          provider: 'anthropic',
+          input_tokens: 200,
+          output_tokens: 100,
+          thinking_tokens: 10,
+          cache_read_tokens: 0,
+          cache_write_tokens: 0,
+          proxy_id: 'p1',
+          route_path: '/v1/chat/completions',
+        },
+      ]);
+
+      const usage = await prism.getUsage();
+      expect(usage.inputTokens).toBe(300);
+      expect(usage.outputTokens).toBe(150);
+      expect(usage.requests).toBe(2);
+
+      const byModel = await prism.getUsageByModel();
+      expect(byModel['gpt-4']).toBeDefined();
+      expect(byModel['gpt-4'].inputTokens).toBe(100);
+      expect(byModel['claude-3']).toBeDefined();
+      expect(byModel['claude-3'].inputTokens).toBe(200);
+
+      const byRoute = await prism.getUsageByRoute();
+      expect(byRoute['/v1/chat/completions']).toBeDefined();
+
+      await prism.shutdown();
+    });
   });
 });
