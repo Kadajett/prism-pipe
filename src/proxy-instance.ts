@@ -48,16 +48,22 @@ export class ProxyInstance {
   private readonly parent: PrismPipe;
   private readonly definition: ProxyDefinition;
   private readonly errorHandlers: ErrorHandler[] = [];
+  private readonly parentEmitError: (event: ProxyErrorEvent) => void;
   private readonly startedAt: number;
   private started = false;
   private middlewareWatchers: Array<() => void> = [];
   private readonly logger: ScopedLogger;
   private portInfo?: PortInfo;
 
-  constructor(parent: PrismPipe, definition: ProxyDefinition) {
+  constructor(
+    parent: PrismPipe,
+    definition: ProxyDefinition,
+    onError?: (event: ProxyErrorEvent) => void
+  ) {
     this.id = definition.id ?? ulid();
     this.parent = parent;
     this.definition = definition;
+    this.parentEmitError = onError ?? (() => {});
     this.stats = new StatsTracker();
     this.circuitBreakers = new CircuitBreakerRegistry();
     this.plugins = new PluginRegistry();
@@ -316,7 +322,8 @@ export class ProxyInstance {
   /**
    * Emit an error event to proxy-level handlers, then bubble to parent.
    */
-  emitError(event: ProxyErrorEvent): void {
+  /** @internal — used by listener/router runtimes via callback, not public API */
+  private emitError(event: ProxyErrorEvent): void {
     for (const handler of this.errorHandlers) {
       try {
         handler(event);
@@ -325,8 +332,8 @@ export class ProxyInstance {
       }
     }
 
-    // Also emit to parent
-    this.parent.emitError(event);
+    // Bubble to parent via callback
+    this.parentEmitError(event);
   }
 
   private getPrimaryPort(): number {

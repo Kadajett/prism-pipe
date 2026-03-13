@@ -115,7 +115,7 @@ export class PrismPipe {
    */
   createProxy(definition: ProxyDefinition): ProxyInstance {
     const config = ProxyDefinitionSchema.parse(definition);
-    const proxy = new ProxyInstance(this, config);
+    const proxy = new ProxyInstance(this, config, (event) => this.emitError(event));
     this.proxies.push(proxy);
     return proxy;
   }
@@ -198,8 +198,8 @@ export class PrismPipe {
   /**
    * Placeholder aggregate usage view during the rewrite.
    */
-  async getUsage(): Promise<UsageSummary> {
-    const entries = await this.store.queryUsage({});
+  async getUsage(query: UsageLogQuery = {}): Promise<UsageSummary> {
+    const entries = await this.store.queryUsage(query);
     return this.summarizeUsageEntries(entries);
   }
 
@@ -293,7 +293,8 @@ export class PrismPipe {
   /**
    * Emit error to global handlers (called by ProxyInstance).
    */
-  emitError(event: ProxyErrorEvent): void {
+  /** @internal — called by ProxyInstance error bubbling, not public API */
+  private emitError(event: ProxyErrorEvent): void {
     for (const handler of this.errorHandlers) {
       try {
         handler(event);

@@ -179,7 +179,9 @@ describe('PrismPipe', () => {
       prism.onError((e) => events.push(e));
 
       // Simulate error emission
-      prism.emitError({
+      // Access private method via type cast for testing
+      // biome-ignore lint/suspicious/noExplicitAny: accessing private method for testing
+      (prism as any).emitError({
         error: new Error('test'),
         errorClass: 'unknown',
         context: { port: '3100' },
@@ -198,7 +200,8 @@ describe('PrismPipe', () => {
       proxy.onError(() => order.push('proxy'));
       prism.onError(() => order.push('global'));
 
-      proxy.emitError({
+      // biome-ignore lint/suspicious/noExplicitAny: accessing private method for testing
+      (proxy as any).emitError({
         error: new Error('test'),
         errorClass: 'unknown',
         context: {},
@@ -219,7 +222,8 @@ describe('PrismPipe', () => {
       prism.onError((e) => received.push(e));
 
       // Should not throw
-      proxy.emitError({
+      // biome-ignore lint/suspicious/noExplicitAny: accessing private method for testing
+      (proxy as any).emitError({
         error: new Error('original'),
         errorClass: 'unknown',
         context: {},
@@ -378,6 +382,282 @@ describe('PrismPipe', () => {
 
       const byRoute = await prism.getUsageByRoute();
       expect(byRoute['/v1/chat/completions']).toBeDefined();
+
+      await prism.shutdown();
+    });
+
+    it('getUsage respects date range filters', async () => {
+      const prism = new PrismPipe({ storeType: 'memory' });
+      await prism.initStore();
+
+      const now = Date.now();
+      const oneHourAgo = now - 3600_000;
+      const twoHoursAgo = now - 7200_000;
+
+      await prism.store.recordUsage([
+        {
+          request_id: 'old',
+          timestamp: twoHoursAgo,
+          model: 'gpt-4',
+          provider: 'openai',
+          input_tokens: 100,
+          output_tokens: 50,
+          thinking_tokens: 0,
+          cache_read_tokens: 0,
+          cache_write_tokens: 0,
+          proxy_id: 'p1',
+          route_path: '/v1/chat/completions',
+        },
+        {
+          request_id: 'recent',
+          timestamp: now,
+          model: 'gpt-4',
+          provider: 'openai',
+          input_tokens: 200,
+          output_tokens: 100,
+          thinking_tokens: 0,
+          cache_read_tokens: 0,
+          cache_write_tokens: 0,
+          proxy_id: 'p1',
+          route_path: '/v1/chat/completions',
+        },
+      ]);
+
+      // Filter to only recent entries
+      const usage = await prism.getUsage({ since: oneHourAgo });
+      expect(usage.inputTokens).toBe(200);
+      expect(usage.outputTokens).toBe(100);
+      expect(usage.requests).toBe(1);
+
+      await prism.shutdown();
+    });
+
+    it('getUsage filters by provider', async () => {
+      const prism = new PrismPipe({ storeType: 'memory' });
+      await prism.initStore();
+
+      await prism.store.recordUsage([
+        {
+          request_id: 'r1',
+          timestamp: Date.now(),
+          model: 'gpt-4',
+          provider: 'openai',
+          input_tokens: 100,
+          output_tokens: 50,
+          thinking_tokens: 0,
+          cache_read_tokens: 0,
+          cache_write_tokens: 0,
+          proxy_id: 'p1',
+          route_path: '/v1/chat/completions',
+        },
+        {
+          request_id: 'r2',
+          timestamp: Date.now(),
+          model: 'claude-3',
+          provider: 'anthropic',
+          input_tokens: 200,
+          output_tokens: 100,
+          thinking_tokens: 0,
+          cache_read_tokens: 0,
+          cache_write_tokens: 0,
+          proxy_id: 'p1',
+          route_path: '/v1/chat/completions',
+        },
+      ]);
+
+      const usage = await prism.getUsage({ provider: 'openai' });
+      expect(usage.inputTokens).toBe(100);
+      expect(usage.requests).toBe(1);
+
+      await prism.shutdown();
+    });
+
+    it('getUsage filters by model', async () => {
+      const prism = new PrismPipe({ storeType: 'memory' });
+      await prism.initStore();
+
+      await prism.store.recordUsage([
+        {
+          request_id: 'r1',
+          timestamp: Date.now(),
+          model: 'gpt-4',
+          provider: 'openai',
+          input_tokens: 100,
+          output_tokens: 50,
+          thinking_tokens: 0,
+          cache_read_tokens: 0,
+          cache_write_tokens: 0,
+          proxy_id: 'p1',
+          route_path: '/v1/chat/completions',
+        },
+        {
+          request_id: 'r2',
+          timestamp: Date.now(),
+          model: 'claude-3',
+          provider: 'anthropic',
+          input_tokens: 200,
+          output_tokens: 100,
+          thinking_tokens: 0,
+          cache_read_tokens: 0,
+          cache_write_tokens: 0,
+          proxy_id: 'p1',
+          route_path: '/v1/chat/completions',
+        },
+      ]);
+
+      const usage = await prism.getUsage({ model: 'claude-3' });
+      expect(usage.inputTokens).toBe(200);
+      expect(usage.requests).toBe(1);
+
+      await prism.shutdown();
+    });
+  });
+
+  describe('queryable logs — filters and pagination', () => {
+    let prism: PrismPipe;
+
+    beforeEach(async () => {
+      prism = new PrismPipe({ storeType: 'memory' });
+      await prism.initStore();
+
+      // Seed log entries
+      const baseEntry = {
+        method: 'POST',
+        source_ip: '127.0.0.1',
+        input_tokens: 10,
+        output_tokens: 5,
+        proxy_id: 'proxy-1',
+      };
+
+      await prism.store.logRequest({
+        ...baseEntry,
+        request_id: 'log-1',
+        timestamp: Date.now() - 7200_000,
+        path: '/v1/chat/completions',
+        route_path: '/v1/chat/completions',
+        provider: 'openai',
+        model: 'gpt-4',
+        status: 200,
+        latency_ms: 100,
+      });
+
+      await prism.store.logRequest({
+        ...baseEntry,
+        request_id: 'log-2',
+        timestamp: Date.now() - 3600_000,
+        path: '/v1/chat/completions',
+        route_path: '/v1/chat/completions',
+        provider: 'anthropic',
+        model: 'claude-3',
+        status: 500,
+        latency_ms: 200,
+        error_class: 'upstream_error',
+      });
+
+      await prism.store.logRequest({
+        ...baseEntry,
+        request_id: 'log-3',
+        timestamp: Date.now(),
+        path: '/v1/embeddings',
+        route_path: '/v1/embeddings',
+        provider: 'openai',
+        model: 'text-embedding-3',
+        status: 200,
+        latency_ms: 50,
+      });
+    });
+
+    afterEach(async () => {
+      await prism.shutdown();
+    });
+
+    it('filters logs by time range', async () => {
+      const logs = await prism.getLogs({ since: Date.now() - 5400_000 });
+      // Should get log-2 and log-3, not log-1
+      expect(logs.length).toBe(2);
+      expect(logs.every((l) => l.request_id !== 'log-1')).toBe(true);
+    });
+
+    it('filters logs by status', async () => {
+      const logs = await prism.getLogs({ status: 500 });
+      expect(logs.length).toBe(1);
+      expect(logs[0].request_id).toBe('log-2');
+    });
+
+    it('filters logs by provider', async () => {
+      const logs = await prism.getLogs({ provider: 'anthropic' });
+      expect(logs.length).toBe(1);
+      expect(logs[0].provider).toBe('anthropic');
+    });
+
+    it('filters logs by model', async () => {
+      const logs = await prism.getLogs({ model: 'text-embedding-3' });
+      expect(logs.length).toBe(1);
+      expect(logs[0].model).toBe('text-embedding-3');
+    });
+
+    it('filters logs by error class', async () => {
+      const logs = await prism.getLogs({ errorClass: 'upstream_error' });
+      expect(logs.length).toBe(1);
+      expect(logs[0].error_class).toBe('upstream_error');
+    });
+
+    it('supports text search across path and model', async () => {
+      const logs = await prism.getLogs({ search: 'embedding' });
+      expect(logs.length).toBe(1);
+      expect(logs[0].path).toContain('embeddings');
+    });
+
+    it('supports pagination with limit and offset', async () => {
+      const page1 = await prism.getLogs({ limit: 2, offset: 0 });
+      expect(page1.length).toBe(2);
+
+      const page2 = await prism.getLogs({ limit: 2, offset: 2 });
+      expect(page2.length).toBe(1);
+
+      // No overlap
+      const page1Ids = page1.map((l) => l.request_id);
+      const page2Ids = page2.map((l) => l.request_id);
+      expect(page1Ids.some((id) => page2Ids.includes(id))).toBe(false);
+    });
+  });
+
+  describe('unhandled errors fall through to Express', () => {
+    it('errors without handlers still return error response', async () => {
+      const prism = new PrismPipe({ storeType: 'memory' });
+      // No .onError() registered — errors should fall through
+
+      const proxy = prism.createProxy({
+        port: 0,
+        providers: {
+          broken: {
+            name: 'broken',
+            baseUrl: 'http://localhost:1',
+            apiKey: 'test-key',
+          },
+        },
+        routes: {
+          '/v1/chat/completions': {
+            providers: ['broken'],
+          },
+        },
+      });
+
+      await proxy.start();
+
+      const res = await fetch(`http://localhost:${proxy.status().port}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'test-model',
+          messages: [{ role: 'user', content: 'hi' }],
+        }),
+      });
+
+      // Express error handler should still produce a proper error response
+      expect(res.ok).toBe(false);
+      const body = await res.json();
+      expect(body.error).toBeDefined();
 
       await prism.shutdown();
     });
