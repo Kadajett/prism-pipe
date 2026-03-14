@@ -31,7 +31,7 @@ function extractText(content: ContentBlock[]): string {
 function buildStepRequest(
   step: CompositionStep,
   ctx: PipelineContext,
-  tplCtx: TemplateContext,
+  tplCtx: TemplateContext
 ): CanonicalRequest {
   const base = ctx.original;
 
@@ -67,7 +67,7 @@ function buildStepRequest(
 function handleStepError(
   step: CompositionStep,
   error: unknown,
-  durationMs: number,
+  durationMs: number
 ): { result: StepResult; shouldAbort: boolean } {
   const policy: ErrorPolicy = step.onError ?? 'fail';
   const errMsg = error instanceof Error ? error.message : String(error);
@@ -134,7 +134,7 @@ export class ChainComposer implements Composer {
   async execute(
     ctx: PipelineContext,
     steps: CompositionStep[],
-    callProvider: CallProviderFn,
+    callProvider: CallProviderFn
   ): Promise<CompositionResult> {
     const totalStart = Date.now();
     const completedSteps: StepResult[] = [];
@@ -157,7 +157,7 @@ export class ChainComposer implements Composer {
         const { result, shouldAbort } = handleStepError(
           step,
           new PipelineError('Timeout budget exhausted', 'timeout', step.name, 504, true),
-          0,
+          0
         );
         completedSteps.push(result);
         if (shouldAbort) {
@@ -174,6 +174,7 @@ export class ChainComposer implements Composer {
         const request = buildStepRequest(step, ctx, tplCtx);
 
         ctx.log.info(`Chain step "${step.name}" starting`, {
+          step: `${i + 1}/${steps.length}`,
           provider: step.provider,
           budgetMs: stepBudget.remaining(),
           isLast: isLastStep,
@@ -199,6 +200,7 @@ export class ChainComposer implements Composer {
         tplCtx.previous = result;
 
         ctx.log.info(`Chain step "${step.name}" completed`, {
+          step: `${i + 1}/${steps.length}`,
           durationMs,
           contentLength: content.length,
         });
@@ -222,6 +224,7 @@ export class ChainComposer implements Composer {
         tplCtx.previous = result;
 
         ctx.log.warn(`Chain step "${step.name}" ${result.status}`, {
+          step: `${i + 1}/${steps.length}`,
           error: result.error,
           policy: step.onError ?? 'fail',
         });
@@ -238,7 +241,7 @@ export class ChainComposer implements Composer {
 
     if (isPartial && completedSteps.some((s) => s.status === 'success')) {
       // Return partial result: last successful step
-      const lastSuccess = [...completedSteps].reverse().find((s) => s.status === 'success');
+      const _lastSuccess = [...completedSteps].reverse().find((s) => s.status === 'success');
       return {
         steps: completedSteps,
         totalDurationMs,
@@ -246,14 +249,16 @@ export class ChainComposer implements Composer {
     }
 
     // Check if we have any successful results at all
-    const hasUsable = completedSteps.some((s) => s.status === 'success' || s.status === 'defaulted');
+    const hasUsable = completedSteps.some(
+      (s) => s.status === 'success' || s.status === 'defaulted'
+    );
     if (!hasUsable) {
       const lastErr = completedSteps[completedSteps.length - 1];
       throw new PipelineError(
         `Chain composition failed: all steps errored. Last: ${lastErr?.error ?? 'unknown'}`,
         'server_error',
         'chain_composer',
-        502,
+        502
       );
     }
 

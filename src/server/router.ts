@@ -1,6 +1,10 @@
 import type { Express, Router as IRouter, Request, Response } from 'express';
 import express from 'express';
 import type { StatsTracker } from '../admin/routes';
+import { appLogger } from '../logging/app-logger';
+
+const routerLogger = appLogger.child({ component: 'router' });
+
 import { ChainComposer } from '../compose/chain';
 import { ToolRouterComposer } from '../compose/tool-router';
 import type { CallProviderFn, CompositionStep } from '../core/composer';
@@ -269,6 +273,20 @@ function registerConfigRoute(
       const serializer = clientTransformer.responseFromCanonical.bind(clientTransformer);
 
       const canonicalRequest: CanonicalRequest = clientTransformer.toCanonical(body);
+
+      // request_start lifecycle log
+      const messageCount = canonicalRequest.messages?.length ?? 0;
+      routerLogger.info(
+        {
+          reqId,
+          model: canonicalRequest.model,
+          provider: routeConfig.providers?.[0] ?? 'auto',
+          messageCount,
+          stream: !!canonicalRequest.stream,
+          routePath: path,
+        },
+        'request_start'
+      );
 
       const timeout = createTimeoutBudget(config.requestTimeout);
       const ctx = new PipelineContext({
@@ -637,6 +655,10 @@ function handleRouteError(
     execution.responseStatus = err.statusCode;
     execution.errorClass = err.code;
     stats?.recordError();
+    routerLogger.warn(
+      { errorType: err.code, step: err.step, statusCode: err.statusCode, err: err.message },
+      'request_error'
+    );
     res.status(err.statusCode).json({
       error: { message: err.message, code: err.code, step: err.step },
     });
@@ -644,7 +666,15 @@ function handleRouteError(
     execution.responseStatus = 500;
     execution.errorClass = 'unknown';
     stats?.recordError();
-    console.error('Unhandled route error:', err);
+    const errObj = err instanceof Error ? err : new Error(String(err));
+    routerLogger.error(
+      {
+        errorType: 'unhandled',
+        err: errObj.message,
+        stack: process.env.NODE_ENV !== 'production' ? errObj.stack : undefined,
+      },
+      'request_error'
+    );
     res.status(500).json({
       error: { message: 'Internal server error', code: 'unknown' },
     });
@@ -694,11 +724,11 @@ function recordRequestMetrics(
         upstream_latency_ms: execution.upstreamLatencyMs,
       })
       .catch((logErr) => {
-        console.error('Failed to log request to store:', logErr);
+        routerLogger.error({ err: String(logErr) }, 'Failed to log request to store');
       });
 
     store.recordUsage(usageEntries).catch((logErr) => {
-      console.error('Failed to log usage entries to store:', logErr);
+      routerLogger.error({ err: String(logErr) }, 'Failed to log usage entries to store');
     });
   }
 }
