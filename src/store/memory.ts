@@ -1,5 +1,7 @@
 import type {
   CostRecord,
+  InjectionDetectionLogEntry,
+  InjectionLogFilter,
   LogFilter,
   LogQuery,
   RateLimitEntry,
@@ -15,6 +17,7 @@ export class MemoryStore implements Store {
   private requestLogs: RequestLogEntry[] = [];
   private costRecords: CostRecord[] = [];
   private usageLogs: UsageLogEntry[] = [];
+  private injectionLogs: InjectionDetectionLogEntry[] = [];
 
   async init(): Promise<void> {}
   async close(): Promise<void> {
@@ -148,6 +151,24 @@ export class MemoryStore implements Store {
     });
     this.requestLogs = toKeep;
     return before - toKeep.length;
+  }
+
+  async logInjectionDetection(entry: InjectionDetectionLogEntry): Promise<void> {
+    this.injectionLogs.push(entry);
+  }
+
+  async queryInjectionLogs(filter: InjectionLogFilter): Promise<InjectionDetectionLogEntry[]> {
+    let results = this.injectionLogs.filter((log) => {
+      if (filter.since !== undefined && log.timestamp < filter.since) return false;
+      if (filter.until !== undefined && log.timestamp > filter.until) return false;
+      if (filter.risk_level && log.risk_level !== filter.risk_level) return false;
+      if (filter.action_taken && log.action_taken !== filter.action_taken) return false;
+      return true;
+    });
+    results.sort((a, b) => b.timestamp - a.timestamp);
+    if (filter.offset) results = results.slice(filter.offset);
+    if (filter.limit) results = results.slice(0, filter.limit);
+    return results;
   }
 
   async recordCost(record: CostRecord): Promise<void> {

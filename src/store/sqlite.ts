@@ -3,6 +3,8 @@ import { dirname } from 'node:path';
 import Database from 'better-sqlite3';
 import type {
   CostRecord,
+  InjectionDetectionLogEntry,
+  InjectionLogFilter,
   LogFilter,
   LogQuery,
   RateLimitEntry,
@@ -99,6 +101,20 @@ export class SQLiteStore implements Store {
       CREATE INDEX IF NOT EXISTS idx_usage_log_timestamp ON usage_log(timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_usage_log_model ON usage_log(model);
       CREATE INDEX IF NOT EXISTS idx_usage_log_proxy ON usage_log(proxy_id);
+
+      CREATE TABLE IF NOT EXISTS injection_detection_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        request_id TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        risk_level TEXT NOT NULL,
+        triggered_rules TEXT NOT NULL,
+        action_taken TEXT NOT NULL,
+        message_index INTEGER NOT NULL,
+        normalized_snippet TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_injection_log_timestamp ON injection_detection_log(timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_injection_log_risk ON injection_detection_log(risk_level);
     `);
 
     // Add new columns if they don't exist (safe migration for existing DBs)
@@ -414,6 +430,54 @@ export class SQLiteStore implements Store {
       provider: r.provider ?? undefined,
       model: r.model ?? undefined,
     }));
+  }
+
+  async logInjectionDetection(entry: InjectionDetectionLogEntry): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    this.db
+      .prepare(`
+        INSERT INTO injection_detection_log (request_id, timestamp, risk_level, triggered_rules, action_taken, message_index, normalized_snippet)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        entry.request_id,
+        entry.timestamp,
+        entry.risk_level,
+        entry.triggered_rules,
+        entry.action_taken,
+        entry.message_index,
+        entry.normalized_snippet ?? null
+      );
+  }
+
+  async queryInjectionLogs(filter: InjectionLogFilter): Promise<InjectionDetectionLogEntry[]> {
+    if (!this.db) throw new Error('Database not initialized');
+    let where = ' WHERE 1=1';
+    const params: unknown[] = [];
+    if (filter.since !== undefined) {
+      where += ' AND timestamp >= ?';
+      params.push(filter.since);
+    }
+    if (filter.until !== undefined) {
+      where += ' AND timestamp <= ?';
+      params.push(filter.until);
+    }
+    if (filter.risk_level) {
+      where += ' AND risk_level = ?';
+      params.push(filter.risk_level);
+    }
+    if (filter.action_taken) {
+      where += ' AND action_taken = ?';
+      params.push(filter.action_taken);
+    }
+    let query = `SELECT request_id, timestamp, risk_level, triggered_rules, action_taken, message_index, normalized_snippet FROM injection_detection_log${where} ORDER BY timestamp DESC`;
+    if (filter.limit !== undefined) {
+      query += ` LIMIT ${filter.limit}`;
+    }
+    if (filter.offset !== undefined) {
+      query += ` OFFSET ${filter.offset}`;
+    }
+    return this.db.prepare(query).all(...params) as InjectionDetectionLogEntry[];
   }
 
   async cleanupExpiredEntries(): Promise<void> {

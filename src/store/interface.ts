@@ -131,6 +131,31 @@ export interface CostRecord {
 }
 
 /**
+ * Injection detection log entry
+ */
+export interface InjectionDetectionLogEntry {
+  request_id: string;
+  timestamp: number;
+  risk_level: string;
+  triggered_rules: string; // JSON string
+  action_taken: string;
+  message_index: number;
+  normalized_snippet?: string;
+}
+
+/**
+ * Filter for injection detection logs
+ */
+export interface InjectionLogFilter {
+  since?: number;
+  until?: number;
+  risk_level?: string;
+  action_taken?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/**
  * Store interface for rate limit and request logging
  */
 export interface Store {
@@ -155,4 +180,8 @@ export interface Store {
   recordCost(record: CostRecord): Promise<void>;
   /** Query cost records */
   queryCosts(filter: { tenantId?: string; month?: string }): Promise<CostRecord[]>;
+  /** Log a prompt injection detection event */
+  logInjectionDetection(entry: InjectionDetectionLogEntry): Promise<void>;
+  /** Query injection detection logs */
+  queryInjectionLogs(filter: InjectionLogFilter): Promise<InjectionDetectionLogEntry[]>;
 }
