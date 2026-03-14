@@ -241,7 +241,7 @@ function registerFunctionRoute(
         execution.responseStatus = res.statusCode;
       }
     } catch (err) {
-      handleRouteError(err, execution, stats, res);
+      handleRouteError(err, execution, stats, res, requestScope.reqId);
     } finally {
       recordRequestMetrics(execution, startTime, req, requestScope, store, stats, path);
     }
@@ -408,7 +408,7 @@ function registerConfigRoute(
             upstreamLatencyMs: 0,
           });
 
-          ctx.log.info('tool-router request completed', { totalMs });
+          ctx.log.info('request_complete', { totalMs });
           return;
         }
 
@@ -506,7 +506,7 @@ function registerConfigRoute(
           res.setHeader('X-Prism-Compose-Steps', String(result.steps.length));
         }
 
-        ctx.log.info('compose request completed', {
+        ctx.log.info('request_complete', {
           steps: result.steps.map((s) => ({
             name: s.name,
             status: s.status,
@@ -564,7 +564,7 @@ function registerConfigRoute(
           }
 
           const totalMs = Date.now() - startTime;
-          ctx.log.info('request completed', {
+          ctx.log.info('request_complete', {
             model: ctx.request.model,
             provider: result.provider,
             latency: totalMs,
@@ -613,7 +613,7 @@ function registerConfigRoute(
           upstreamLatencyMs: Math.round(result.latencyMs),
         });
 
-        ctx.log.info('request completed', {
+        ctx.log.info('request_complete', {
           model: ctx.response.model ?? ctx.request.model,
           provider: result.provider,
           latency: Date.now() - startTime,
@@ -627,7 +627,7 @@ function registerConfigRoute(
         ctx.metrics.histogram('request.upstream_latency_ms', result.latencyMs);
       }
     } catch (err) {
-      handleRouteError(err, execution, stats, res);
+      handleRouteError(err, execution, stats, res, reqId);
     } finally {
       recordRequestMetrics(
         execution,
@@ -649,18 +649,32 @@ function handleRouteError(
   err: unknown,
   execution: RouteExecutionState,
   stats: StatsTracker | undefined,
-  res: Response
+  res: Response,
+  reqId?: string
 ) {
+  const requestId = reqId ?? 'unknown';
   if (err instanceof PipelineError) {
     execution.responseStatus = err.statusCode;
     execution.errorClass = err.code;
     stats?.recordError();
     routerLogger.warn(
-      { errorType: err.code, step: err.step, statusCode: err.statusCode, err: err.message },
+      {
+        reqId: requestId,
+        errorType: err.code,
+        step: err.step,
+        statusCode: err.statusCode,
+        err: err.message,
+      },
       'request_error'
     );
     res.status(err.statusCode).json({
-      error: { message: err.message, code: err.code, step: err.step },
+      error: {
+        message: err.message,
+        type: err.code,
+        code: err.code,
+        step: err.step,
+        request_id: requestId,
+      },
     });
   } else {
     execution.responseStatus = 500;
@@ -669,6 +683,7 @@ function handleRouteError(
     const errObj = err instanceof Error ? err : new Error(String(err));
     routerLogger.error(
       {
+        reqId: requestId,
         errorType: 'unhandled',
         err: errObj.message,
         stack: process.env.NODE_ENV !== 'production' ? errObj.stack : undefined,
@@ -676,7 +691,12 @@ function handleRouteError(
       'request_error'
     );
     res.status(500).json({
-      error: { message: 'Internal server error', code: 'unknown' },
+      error: {
+        message: 'Internal server error',
+        type: 'internal_error',
+        code: 'unknown',
+        request_id: requestId,
+      },
     });
   }
 }

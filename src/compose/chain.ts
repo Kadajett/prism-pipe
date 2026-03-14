@@ -156,7 +156,13 @@ export class ChainComposer implements Composer {
       if (!ctx.timeout.hasTime()) {
         const { result, shouldAbort } = handleStepError(
           step,
-          new PipelineError('Timeout budget exhausted', 'timeout', step.name, 504, true),
+          new PipelineError(
+            `Timeout budget exhausted at step ${i + 1}/${steps.length} ("${step.name}"), 0ms remaining`,
+            'timeout',
+            step.name,
+            504,
+            true
+          ),
           0
         );
         completedSteps.push(result);
@@ -254,8 +260,9 @@ export class ChainComposer implements Composer {
     );
     if (!hasUsable) {
       const lastErr = completedSteps[completedSteps.length - 1];
+      const completedNames = completedSteps.map((s) => `${s.name}(${s.status})`).join(', ');
       throw new PipelineError(
-        `Chain composition failed: all steps errored. Last: ${lastErr?.error ?? 'unknown'}`,
+        `Chain composition failed at step ${completedSteps.length}/${steps.length}: all steps errored. Last: ${lastErr?.error ?? 'unknown'}. Steps: [${completedNames}]`,
         'server_error',
         'chain_composer',
         502
