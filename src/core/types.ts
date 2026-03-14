@@ -8,6 +8,7 @@ import { z } from 'zod';
 import type { AdminRouteOptions } from '../admin/routes';
 import type { JwtConfig } from '../auth/tenant';
 import type { CircuitBreakerOptions } from '../fallback/circuit-breaker';
+import type { PromptGuardConfig } from '../middleware/prompt-guard';
 import type { PipelineContext } from './context';
 
 // ─── Content Blocks ───
@@ -414,6 +415,8 @@ export type RouteConfigObject = {
   circuitBreaker?: CircuitBreakerOptions;
   retry?: RetryConfig;
   degradation?: boolean;
+  /** Prompt injection detection config. When present, the prompt-guard middleware is inserted. */
+  promptGuard?: PromptGuardConfig;
 };
 
 export type RouteValue = RouteHandler | RouteConfigObject;
@@ -421,6 +424,16 @@ export type RouteValue = RouteHandler | RouteConfigObject;
 export const RouteValueSchema: z.ZodType<RouteValue> = z.lazy(() =>
   z.union([RouteHandlerSchema, RouteConfigObjectSchema])
 );
+
+export const PromptGuardConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    action: z.enum(['block', 'flag', 'sanitize', 'log']).optional(),
+    threshold: z.number().min(0).max(1).optional(),
+    excludeRoles: z.array(z.string()).optional(),
+    maxScanLength: z.number().int().positive().optional(),
+  })
+  .optional();
 
 export const RouteConfigObjectSchema: z.ZodType<RouteConfigObject> = z.strictObject({
   providers: z.array(z.string().min(1)).optional(),
@@ -431,6 +444,7 @@ export const RouteConfigObjectSchema: z.ZodType<RouteConfigObject> = z.strictObj
   circuitBreaker: CircuitBreakerOptionsSchema.optional(),
   retry: RetryConfigSchema.optional(),
   degradation: z.boolean().optional(),
+  promptGuard: PromptGuardConfigSchema,
 });
 
 /**

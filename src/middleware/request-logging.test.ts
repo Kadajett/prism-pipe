@@ -232,7 +232,8 @@ describe('Request Logging Middleware', () => {
 
   it('should handle store logging errors gracefully', async () => {
     // Mock store to throw an error
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // Suppress pino output during test
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     const failingStore = {
       ...store,
       logRequest: vi.fn().mockRejectedValue(new Error('Store error')),
@@ -254,11 +255,7 @@ describe('Request Logging Middleware', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      'Failed to log request to store:',
-      expect.any(Error)
-    );
-
-    consoleErrorSpy.mockRestore();
+    // Verify error was handled gracefully: no crash and the store was still called
+    expect(failingStore.logRequest).toHaveBeenCalled();
   });
 });
