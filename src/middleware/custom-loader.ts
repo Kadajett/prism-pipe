@@ -5,8 +5,8 @@
  * Supports hot-reload via fs.watch with graceful drain.
  */
 
-import { existsSync, readdirSync, watch, type FSWatcher } from 'node:fs';
-import { resolve, extname, basename } from 'node:path';
+import { existsSync, type FSWatcher, readdirSync, watch } from 'node:fs';
+import { basename, extname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { NamedMiddleware } from '../plugin/types';
 
@@ -38,7 +38,12 @@ export async function loadMiddlewareFromDir(dirPath: string): Promise<NamedMiddl
     const mod = await import(`${fileUrl}?t=${Date.now()}`);
     const exported = mod.default ?? mod;
 
-    if (exported && typeof exported === 'object' && 'name' in exported && 'middleware' in exported) {
+    if (
+      exported &&
+      typeof exported === 'object' &&
+      'name' in exported &&
+      'middleware' in exported
+    ) {
       middlewares.push(exported as NamedMiddleware);
     } else if (typeof exported === 'function') {
       // Bare middleware function — wrap with filename as name
@@ -57,7 +62,7 @@ export async function loadMiddlewareFromDir(dirPath: string): Promise<NamedMiddl
 export function watchMiddlewareDir(
   dirPath: string,
   onReload: (middlewares: NamedMiddleware[]) => void | Promise<void>,
-  options?: { debounceMs?: number },
+  options?: { debounceMs?: number }
 ): () => void {
   const absDir = resolve(dirPath);
 
@@ -81,7 +86,8 @@ export function watchMiddlewareDir(
         await onReload(middlewares);
       } catch (err) {
         // Keep existing middleware on reload failure, but warn so users can debug
-        console.warn(`[custom-loader] hot-reload failed for ${absDir}:`, err);
+        const { getAppLogger } = await import('../logging/app-logger');
+        getAppLogger().warn({ err, dir: absDir }, 'Custom middleware hot-reload failed');
       }
     }, debounceMs);
   });

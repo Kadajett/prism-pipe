@@ -6,6 +6,7 @@
 import { loadConfig } from './config/loader';
 import type { ProxyDefinition, RouteConfigObject, RouteValue } from './core/types';
 import { PrismPipe } from './lib';
+import { getAppLogger } from './logging/app-logger';
 
 const config = loadConfig(process.env.PRISM_CONFIG);
 
@@ -26,13 +27,13 @@ const proxy = prism.createProxy({
 });
 
 proxy.start().catch((err) => {
-  console.error('Failed to start Prism Pipe:', err);
+  getAppLogger().fatal({ err }, 'Failed to start Prism Pipe');
   process.exit(1);
 });
 
 // Graceful shutdown
 function shutdown(signal: string) {
-  console.log(`Received ${signal}, shutting down...`);
+  getAppLogger().info({ signal }, 'Received shutdown signal');
   prism.shutdown().then(() => process.exit(0));
   setTimeout(() => process.exit(1), 10_000).unref();
 }

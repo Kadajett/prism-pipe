@@ -1,7 +1,8 @@
-import express, { type NextFunction, type Request, type Response } from 'express';
 import type { Server } from 'node:http';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import { ulid } from 'ulid';
 import { PipelineError } from '../core/types';
+import { getAppLogger } from '../logging/app-logger';
 import type { PrismConfig } from '../types/index';
 
 const VERSION = '0.1.0';
@@ -35,13 +36,13 @@ export function createApp(config?: PrismConfig) {
 
     // Latency header on finish
     res.on('finish', () => {
-      const latency = Date.now() - start;
+      const _latency = Date.now() - start;
       // Header may already be sent, but set for supertest
     });
 
     // Set latency before response ends
     const origEnd = res.end.bind(res) as (...args: unknown[]) => Response;
-    (res as unknown as Record<string, unknown>).end = function (...args: unknown[]) {
+    (res as unknown as Record<string, unknown>).end = (...args: unknown[]) => {
       const latency = Date.now() - start;
       if (!res.headersSent) {
         res.setHeader('X-Prism-Latency', `${latency}ms`);
@@ -105,7 +106,7 @@ export function createApp(config?: PrismConfig) {
     });
 
     // Chat completions placeholder
-    app.post('/v1/chat/completions', (req: Request, res: Response) => {
+    app.post('/v1/chat/completions', (_req: Request, res: Response) => {
       res.json({
         id: ulid(),
         object: 'chat.completion',
@@ -162,11 +163,13 @@ export function errorHandler(err: Error, _req: Request, res: Response, _next: Ne
     return;
   }
 
-  console.error('Unhandled error:', err);
+  const reqId = (_req as unknown as Record<string, string>).requestId ?? 'unknown';
+  getAppLogger().error({ err, reqId }, 'Unhandled error');
   res.status(500).json({
     error: {
       message: 'Internal server error',
       code: 'unknown',
+      request_id: reqId,
     },
   });
 }

@@ -1,4 +1,5 @@
 import { ulid } from 'ulid';
+import { getAppLogger } from '../logging/app-logger';
 import { createTimeoutBudget, type TimeoutBudget } from './timeout';
 import type {
   CanonicalRequest,
@@ -35,16 +36,17 @@ export class PipelineContext {
     this.config = opts.config;
     this.timeout = opts.timeout ?? createTimeoutBudget(opts.config.requestTimeout);
 
-    this.log = opts.log ?? {
-      info: (msg, data) =>
-        console.log(JSON.stringify({ level: 'info', reqId: this.id, msg, ...data })),
-      warn: (msg, data) =>
-        console.warn(JSON.stringify({ level: 'warn', reqId: this.id, msg, ...data })),
-      error: (msg, data) =>
-        console.error(JSON.stringify({ level: 'error', reqId: this.id, msg, ...data })),
-      debug: (msg, data) =>
-        console.debug(JSON.stringify({ level: 'debug', reqId: this.id, msg, ...data })),
-    };
+    if (opts.log) {
+      this.log = opts.log;
+    } else {
+      const child = getAppLogger().child({ reqId: this.id });
+      this.log = {
+        info: (msg, data) => child.info(data ?? {}, msg),
+        warn: (msg, data) => child.warn(data ?? {}, msg),
+        error: (msg, data) => child.error(data ?? {}, msg),
+        debug: (msg, data) => child.debug(data ?? {}, msg),
+      };
+    }
 
     this.metrics = opts.metrics ?? {
       counter: () => {},

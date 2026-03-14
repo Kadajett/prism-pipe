@@ -16,6 +16,7 @@ import type {
 } from '../core/types';
 import { PipelineError } from '../core/types';
 import { executeFallbackChain } from '../fallback/chain';
+import { getAppLogger } from '../logging/app-logger';
 import type { AgentFactory } from '../network/agent-factory';
 import { withFeatureDegradation } from '../proxy/feature-degradation';
 import { callProvider as rawCallProvider } from '../proxy/provider';
@@ -447,9 +448,13 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
           execution.responseStatus = 500;
           execution.errorClass = 'unknown';
           stats?.recordError();
-          console.error('Unhandled route error:', err);
+          getAppLogger().error({ err, reqId: requestScope.reqId }, 'Unhandled route error');
           res.status(500).json({
-            error: { message: 'Internal server error', code: 'unknown' },
+            error: {
+              message: 'Internal server error',
+              code: 'unknown',
+              request_id: requestScope.reqId,
+            },
           });
         }
       } finally {
@@ -488,11 +493,14 @@ export function setupRoutes(app: Express, opts: RouterOptions) {
               upstream_latency_ms: execution.upstreamLatencyMs,
             })
             .catch((logErr) => {
-              console.error('Failed to log request to store:', logErr);
+              getAppLogger().error({ err: logErr, reqId: reqId }, 'Failed to log request to store');
             });
 
           store.recordUsage(usageEntries).catch((logErr) => {
-            console.error('Failed to log usage entries to store:', logErr);
+            getAppLogger().error(
+              { err: logErr, reqId: reqId },
+              'Failed to log usage entries to store'
+            );
           });
         }
       }
