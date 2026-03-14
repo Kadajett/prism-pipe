@@ -1,15 +1,35 @@
 #!/bin/bash
 # Start all Prism Pipe instances
-export INCEPTION_API_KEY=sk_0b907b1752a9f633a99abb960c38730a
-export ANTHROPIC_API_KEY=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
+#
+# Modes:
+#   ./start-all.sh              — Programmatic mode (single process, recommended)
+#   ./start-all.sh --yaml       — Legacy YAML mode (3 separate processes)
+#
+# Required env vars:
+#   INCEPTION_API_KEY
+#   ANTHROPIC_API_KEY
 
-cd /home/kadajett/prism-pipe
+set -euo pipefail
+cd "$(dirname "$0")"
+
+if [ -z "${INCEPTION_API_KEY:-}" ] || [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+  echo "❌ Required env vars: INCEPTION_API_KEY, ANTHROPIC_API_KEY"
+  echo "   Export them or create a .env file."
+  exit 1
+fi
+
+# ── Programmatic mode (default) ─────────────────────────────────────────────
+if [ "${1:-}" != "--yaml" ]; then
+  echo "Starting Prism Pipe (programmatic — single process)..."
+  exec npx tsx examples/programmatic.ts
+fi
+
+# ── Legacy YAML mode ────────────────────────────────────────────────────────
+echo "Starting Prism Pipe (YAML — 3 separate processes)..."
 
 # Kill any existing instances
-pkill -f "node dist/index.js" 2>/dev/null
+pkill -f "node dist/index.js" 2>/dev/null || true
 sleep 1
-
-echo "Starting Prism Pipe instances..."
 
 # Mercury Direct — port 3100
 PRISM_CONFIG=configs/mercury-direct.yaml nohup node dist/index.js > /tmp/prism-pipe-3100.log 2>&1 &
@@ -27,6 +47,6 @@ sleep 2
 
 # Health checks
 for port in 3100 3101 3102; do
-  status=$(curl -s http://localhost:$port/health | jq -r .status 2>/dev/null || echo "down")
+  status=$(curl -s "http://localhost:$port/health" | jq -r .status 2>/dev/null || echo "down")
   echo "  Port $port: $status"
 done
