@@ -49,3 +49,4 @@ export type { PrismConfig } from './prism-pipe';
 export { PrismPipe } from './prism-pipe';
 export type { ProxyHealthInfo } from './proxy-instance';
 export { ProxyInstance } from './proxy-instance';
+export type { LogQuery, RequestLogEntry, UsageLogEntry, UsageLogQuery } from './store/interface';
