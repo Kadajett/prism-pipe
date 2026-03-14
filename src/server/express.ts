@@ -1,8 +1,11 @@
-import express, { type NextFunction, type Request, type Response } from 'express';
 import type { Server } from 'node:http';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import { ulid } from 'ulid';
 import { PipelineError } from '../core/types';
+import { appLogger } from '../logging/app-logger';
 import type { PrismConfig } from '../types/index';
+
+const logger = appLogger.child({ component: 'server' });
 
 const VERSION = '0.1.0';
 const startedAt = Date.now();
@@ -33,15 +36,18 @@ export function createApp(config?: PrismConfig) {
     res.setHeader('X-Prism-Version', VERSION);
     (req as unknown as Record<string, unknown>).requestId = reqId;
 
-    // Latency header on finish
+    // Log request completion with latency
     res.on('finish', () => {
-      const latency = Date.now() - start;
-      // Header may already be sent, but set for supertest
+      const latencyMs = Date.now() - start;
+      logger.info(
+        { reqId, method: req.method, path: req.path, status: res.statusCode, latencyMs },
+        'request_complete'
+      );
     });
 
     // Set latency before response ends
     const origEnd = res.end.bind(res) as (...args: unknown[]) => Response;
-    (res as unknown as Record<string, unknown>).end = function (...args: unknown[]) {
+    (res as unknown as Record<string, unknown>).end = (...args: unknown[]) => {
       const latency = Date.now() - start;
       if (!res.headersSent) {
         res.setHeader('X-Prism-Latency', `${latency}ms`);
@@ -105,7 +111,7 @@ export function createApp(config?: PrismConfig) {
     });
 
     // Chat completions placeholder
-    app.post('/v1/chat/completions', (req: Request, res: Response) => {
+    app.post('/v1/chat/completions', (_req: Request, res: Response) => {
       res.json({
         id: ulid(),
         object: 'chat.completion',
@@ -150,23 +156,39 @@ export function createApp(config?: PrismConfig) {
 /**
  * Error handler middleware — must be added after all routes.
  */
-export function errorHandler(err: Error, _req: Request, res: Response, _next: NextFunction) {
+export function errorHandler(err: Error, req: Request, res: Response, _next: NextFunction) {
+  const reqId = (req as unknown as Record<string, string>).requestId ?? 'unknown';
+
   if (err instanceof PipelineError) {
+    logger.warn(
+      { reqId, errorType: err.code, step: err.step, statusCode: err.statusCode },
+      'request_error'
+    );
     res.status(err.statusCode).json({
       error: {
         message: err.message,
         code: err.code,
         step: err.step,
+        request_id: reqId,
       },
     });
     return;
   }
 
-  console.error('Unhandled error:', err);
+  logger.error(
+    {
+      reqId,
+      errorType: 'unhandled',
+      err: err.message,
+      stack: process.env.NODE_ENV !== 'production' ? err.stack : undefined,
+    },
+    'request_error'
+  );
   res.status(500).json({
     error: {
       message: 'Internal server error',
       code: 'unknown',
+      request_id: reqId,
     },
   });
 }
@@ -181,6 +203,7 @@ export async function startServer(
 
   return new Promise((resolve) => {
     const server = app.listen(config.server.port, config.server.host, () => {
+      logger.info({ port: config.server.port, host: config.server.host }, 'server_started');
       const shutdown = () =>
         new Promise<void>((res) => {
           server.close(() => res());

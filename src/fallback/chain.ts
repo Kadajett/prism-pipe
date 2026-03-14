@@ -38,7 +38,17 @@ async function sleep(ms: number): Promise<void> {
 export async function executeFallbackChain(
   opts: FallbackChainOptions
 ): Promise<ProviderCallResult | ProviderStreamResult> {
-  const { providers, body, stream, timeout, log, maxRetries = 2, baseBackoffMs = 500, circuitBreakers, agent } = opts;
+  const {
+    providers,
+    body,
+    stream,
+    timeout,
+    log,
+    maxRetries = 2,
+    baseBackoffMs = 500,
+    circuitBreakers,
+    agent,
+  } = opts;
   const errors: Array<{ provider: string; error: PipelineError }> = [];
 
   for (const { config, transformer } of providers) {
@@ -84,9 +94,13 @@ export async function executeFallbackChain(
 
         breaker?.recordFailure();
         errors.push({ provider: config.name, error: pErr });
-        log.warn(`Provider ${config.name} failed (attempt ${attempt + 1})`, {
+        log.warn(`Provider ${config.name} failed (attempt ${attempt + 1}/${maxRetries + 1})`, {
+          provider: config.name,
+          attempt: attempt + 1,
+          maxAttempts: maxRetries + 1,
           code: pErr.code,
           retryable: pErr.retryable,
+          willRetry: pErr.retryable && attempt < maxRetries,
           status: pErr.statusCode,
         });
 

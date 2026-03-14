@@ -1,5 +1,8 @@
 import type { NextFunction, Request, Response } from 'express';
+import { appLogger } from '../logging/app-logger';
 import type { Store } from '../store/interface';
+
+const logger = appLogger.child({ component: 'request-logging' });
 
 export interface RequestLoggingOptions {
   store: Store;
@@ -90,7 +93,7 @@ export function createRequestLoggingMiddleware(opts: RequestLoggingOptions) {
           upstream_latency_ms: metadata.upstreamLatencyMs,
         })
         .catch((error) => {
-          console.error('Failed to log request to store:', error);
+          logger.error({ err: String(error) }, 'Failed to log request to store');
         });
     });
 

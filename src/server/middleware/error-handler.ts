@@ -2,8 +2,11 @@
  * Error handler middleware
  * Maps error classes to HTTP status codes with structured JSON responses
  */
-import type { Request, Response, NextFunction } from 'express';
-import type { PrismError, ErrorResponse } from '../../types/index';
+import type { NextFunction, Request, Response } from 'express';
+import { appLogger } from '../../logging/app-logger';
+import type { ErrorResponse, PrismError } from '../../types/index';
+
+const logger = appLogger.child({ component: 'error-handler' });
 
 const ERROR_TYPE_MAP: Record<string, number> = {
   validation_error: 400,
@@ -20,49 +23,41 @@ export function errorHandler(
   err: Error | PrismError,
   req: Request,
   res: Response,
-  // biome-ignore lint/suspicious/noUnusedParameters: Express requires 4 params for error handler
-  next: NextFunction
+  // biome-ignore lint/correctness/noUnusedFunctionParameters: Express requires 4 params for error handler
+  _next: NextFunction
 ): void {
   // Check if this is a PrismError with additional metadata
   const isPrismError = 'code' in err && 'type' in err;
 
-  const statusCode = isPrismError
-    ? (err as PrismError).statusCode || 500
-    : 500;
+  const statusCode = isPrismError ? (err as PrismError).statusCode || 500 : 500;
 
-  const errorType = isPrismError
-    ? (err as PrismError).type
-    : 'internal_error';
+  const errorType = isPrismError ? (err as PrismError).type : 'internal_error';
 
-  const errorCode = isPrismError
-    ? (err as PrismError).code
-    : 'INTERNAL_ERROR';
+  const errorCode = isPrismError ? (err as PrismError).code : 'INTERNAL_ERROR';
 
-  const retryAfter = isPrismError
-    ? (err as PrismError).retryAfter
-    : undefined;
+  const retryAfter = isPrismError ? (err as PrismError).retryAfter : undefined;
 
-  // Never leak stack traces in production
-  const message =
-    process.env.NODE_ENV === 'production'
-      ? err.message
-      : err.stack || err.message;
+  const reqId = req.id ?? (req as unknown as Record<string, string>).requestId ?? 'unknown';
 
-  // Log error with request context
-  console.error({
-    requestId: req.id,
-    error: errorType,
-    code: errorCode,
-    message: err.message,
-    stack: process.env.NODE_ENV !== 'production' ? err.stack : undefined,
-  });
+  // Structured error log with request context
+  logger.error(
+    {
+      reqId,
+      errorType,
+      code: errorCode,
+      statusCode,
+      err: err.message,
+      stack: process.env.NODE_ENV !== 'production' ? err.stack : undefined,
+    },
+    'request_error'
+  );
 
   const errorResponse: ErrorResponse = {
     error: {
       type: errorType,
       message: err.message,
       code: errorCode,
-      request_id: req.id,
+      request_id: reqId,
       ...(retryAfter && { retry_after: retryAfter }),
     },
   };

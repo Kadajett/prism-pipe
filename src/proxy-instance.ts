@@ -17,6 +17,7 @@ import type {
 } from './core/types';
 import { CostSummarySchema, ModelDefinitionSchema, ProxyStatusSchema } from './core/types';
 import { CircuitBreakerRegistry } from './fallback/circuit-breaker';
+import { promptGuardMiddleware } from './middleware/prompt-guard';
 import { loadPlugins } from './plugin/loader';
 import { PluginRegistry } from './plugin/registry';
 import type { PrismPipe } from './prism-pipe';
@@ -113,6 +114,13 @@ export class ProxyInstance {
     if (portConfig.plugins && portConfig.plugins.length > 0) {
       await loadPlugins(portConfig.plugins, process.cwd(), this.plugins);
     }
+
+    // Register built-in prompt-guard middleware (priority 10 — runs before inject-system)
+    this.plugins.register({
+      name: 'builtin:prompt-guard',
+      version: '1.0.0',
+      middleware: [promptGuardMiddleware],
+    });
 
     for (const plugin of this.plugins.allPlugins()) {
       if (plugin.onStart) {
