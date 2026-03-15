@@ -31,7 +31,7 @@ routes:
 
 - **`block`** — Throws `PipelineError` with code `content_filter` (HTTP 400). Request is rejected.
 - **`flag`** — Sets `ctx.metadata` fields (`promptGuard.flagged`, `promptGuard.score`, `promptGuard.matches`) and continues. Downstream middleware/handlers can inspect these.
-- **`sanitize`** — Strips matched patterns from message text and continues. Sets `promptGuard.sanitized` metadata.
+- **`sanitize`** — Strips **all** occurrences of matched patterns from message text (global regex replacement) and continues. Sets `promptGuard.sanitized` metadata.
 - **`log`** — Logs a warning with score/matches and continues unchanged.
 
 ## Pattern Categories

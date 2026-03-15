@@ -273,15 +273,6 @@ export function ensureGlobal(re: RegExp): RegExp {
  * Uses global regexes so every match is removed, not just the first.
  * @internal
  */
-/**
- * Ensure a RegExp has the global flag so `.replace()` strips *all* occurrences.
- * Returns the original regex when it already has `g`; otherwise creates a copy.
- * @internal
- */
-function ensureGlobal(re: RegExp): RegExp {
-  return re.global ? re : new RegExp(re.source, re.flags + 'g');
-}
-
 function sanitizeContent(
   content: string | ContentBlock[],
   patterns: PatternRule[],
