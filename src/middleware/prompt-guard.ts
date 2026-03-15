@@ -260,7 +260,17 @@ export function computeScore(matches: PatternMatch[]): number {
 }
 
 /**
- * Strip matched patterns from message text.
+ * Ensure a RegExp has the global flag so `replaceAll`-style behaviour works
+ * with `String.replace`. Returns a new RegExp with `g` added when missing.
+ * @internal
+ */
+export function ensureGlobal(re: RegExp): RegExp {
+  return re.global ? re : new RegExp(re.source, `${re.flags}g`);
+}
+
+/**
+ * Strip **all** occurrences of matched patterns from message text.
+ * Uses global regexes so every match is removed, not just the first.
  * @internal
  */
 /**
