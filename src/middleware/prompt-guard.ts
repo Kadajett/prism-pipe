@@ -263,6 +263,15 @@ export function computeScore(matches: PatternMatch[]): number {
  * Strip matched patterns from message text.
  * @internal
  */
+/**
+ * Ensure a RegExp has the global flag so `.replace()` strips *all* occurrences.
+ * Returns the original regex when it already has `g`; otherwise creates a copy.
+ * @internal
+ */
+function ensureGlobal(re: RegExp): RegExp {
+  return re.global ? re : new RegExp(re.source, re.flags + 'g');
+}
+
 function sanitizeContent(
   content: string | ContentBlock[],
   patterns: PatternRule[],
@@ -271,7 +280,7 @@ function sanitizeContent(
   if (typeof content === 'string') {
     let text = content.length > maxLen ? content.slice(0, maxLen) : content;
     for (const rule of patterns) {
-      text = text.replace(rule.pattern, '');
+      text = text.replace(ensureGlobal(rule.pattern), '');
     }
     return text;
   }
@@ -281,7 +290,7 @@ function sanitizeContent(
       let text = (block as { text: string }).text;
       if (text.length > maxLen) text = text.slice(0, maxLen);
       for (const rule of patterns) {
-        text = text.replace(rule.pattern, '');
+        text = text.replace(ensureGlobal(rule.pattern), '');
       }
       return { ...block, text } as ContentBlock;
     }
