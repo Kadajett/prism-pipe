@@ -6,7 +6,15 @@ export type {
   PatternRule,
   PromptGuardAction,
   PromptGuardConfig,
+  PromptGuardRule,
 } from './prompt-guard';
-export { createPromptGuard, promptGuardMiddleware } from './prompt-guard';
+export {
+  compilePattern,
+  createPromptGuard,
+  createPromptGuardMiddleware,
+  PromptGuardRuleSchema,
+  PromptGuardRulesSchema,
+  promptGuardMiddleware,
+} from './prompt-guard';
 export { createRequestLoggingMiddleware } from './request-logging';
 export { createTransformMiddleware } from './transform-format';
