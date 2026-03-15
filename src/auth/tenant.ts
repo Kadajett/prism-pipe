@@ -5,6 +5,7 @@
 
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
+import type { Store } from '../store/interface';
 
 // ─── Types ───
 
@@ -62,10 +63,31 @@ export interface TenantContext {
 export class TenantCostTracker {
   /** tenantId → { month → costUsd } */
   private costs = new Map<string, Map<string, number>>();
+  private readonly store: Store;
+
+  constructor(store: Store) {
+    this.store = store;
+  }
 
   private monthKey(): string {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  /**
+   * Initialize the tracker by hydrating in-memory costs from the store.
+   * Call this after the store is initialized.
+   */
+  async hydrate(): Promise<void> {
+    const records = await this.store.queryCosts({});
+    for (const record of records) {
+      let tenantCosts = this.costs.get(record.tenantId);
+      if (!tenantCosts) {
+        tenantCosts = new Map();
+        this.costs.set(record.tenantId, tenantCosts);
+      }
+      tenantCosts.set(record.month, (tenantCosts.get(record.month) ?? 0) + record.costUsd);
+    }
   }
 
   record(tenantId: string, costUsd: number): void {
@@ -76,6 +98,11 @@ export class TenantCostTracker {
       this.costs.set(tenantId, tenantCosts);
     }
     tenantCosts.set(month, (tenantCosts.get(month) ?? 0) + costUsd);
+
+    // Persist to store (fire and forget to avoid blocking)
+    this.store.recordCost({ tenantId, month, costUsd }).catch((err) => {
+      console.error(`Failed to record cost for tenant ${tenantId}:`, err);
+    });
   }
 
   getCurrentMonthCost(tenantId: string): number {
@@ -110,9 +137,10 @@ export class TenantManager {
   private keyIndex = new Map<string, string>();
   private jwtConfig?: JwtConfig;
   private oauth2Config?: OAuth2Config;
-  readonly costs = new TenantCostTracker();
+  readonly costs: TenantCostTracker;
 
-  constructor(opts?: { tenants?: TenantConfig[]; jwt?: JwtConfig; oauth2?: OAuth2Config }) {
+  constructor(opts?: { tenants?: TenantConfig[]; jwt?: JwtConfig; oauth2?: OAuth2Config; store?: Store }) {
+    this.costs = new TenantCostTracker(opts?.store!);
     if (opts?.tenants) {
       for (const t of opts.tenants) this.addTenant(t);
     }

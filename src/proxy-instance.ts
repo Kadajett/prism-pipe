@@ -59,7 +59,7 @@ export class ProxyInstance {
     this.parent = parent;
     this.definition = definition;
     this.stats = new StatsTracker();
-    this.circuitBreakers = new CircuitBreakerRegistry();
+    this.circuitBreakers = new CircuitBreakerRegistry({ store: parent.store });
     this.plugins = new PluginRegistry();
     this.startedAt = Date.now();
 
