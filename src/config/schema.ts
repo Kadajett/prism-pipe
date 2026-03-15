@@ -46,7 +46,7 @@ export const LoggingConfigSchema = z.object({
 export type LoggingConfig = z.infer<typeof LoggingConfigSchema>;
 
 export const StoreConfigSchema = z.object({
-  type: z.enum(['sqlite', 'memory']).default('memory'),
+  type: z.enum(['sqlite', 'memory']).default('sqlite'),
   path: z.string().optional(),
 });
 export type StoreConfig = z.infer<typeof StoreConfigSchema>;

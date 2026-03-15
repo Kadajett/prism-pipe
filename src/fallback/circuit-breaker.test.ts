@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CircuitBreaker, CircuitBreakerRegistry } from './circuit-breaker';
+import { MemoryStore } from '../store/memory';
 
 describe('CircuitBreaker', () => {
   let cb: CircuitBreaker;
@@ -125,5 +126,45 @@ describe('CircuitBreakerRegistry', () => {
     reg.get('openai').recordFailure();
     reg.get('openai').recordFailure();
     expect(reg.isAvailable('openai')).toBe(false);
+  });
+
+  it('persists circuit breaker state on transition', async () => {
+    const store = new MemoryStore();
+    const reg = new CircuitBreakerRegistry({ failureThreshold: 2, store });
+    const cb = reg.get('openai');
+    
+    cb.recordFailure();
+    cb.recordFailure(); // trips to open
+    
+    // Give the fire-and-forget persistence time to complete
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const persisted = await store.circuitBreakerGet('openai');
+    expect(persisted).not.toBeNull();
+    expect(persisted!.state).toBe('open');
+    expect(persisted!.consecutiveFailures).toBe(2);
+  });
+
+  it('restores circuit breaker state from store', async () => {
+    const store = new MemoryStore();
+    
+    // Store a persisted open state
+    await store.circuitBreakerSet('provider1', {
+      provider: 'provider1',
+      state: 'open',
+      consecutiveFailures: 2,
+      openedAt: Date.now(),
+    });
+
+    // Create a new registry and get the breaker
+    const reg = new CircuitBreakerRegistry({ failureThreshold: 3, store });
+    const cb = reg.get('provider1');
+    
+    // Give the async hydration time to complete
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Should be restored to open state
+    expect(cb.getState()).toBe('open');
+    expect(cb.allowRequest()).toBe(false);
   });
 });

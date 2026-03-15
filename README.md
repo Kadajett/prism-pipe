@@ -254,6 +254,16 @@ See [`examples/programmatic.ts`](./examples/programmatic.ts) for the full multi-
 | `STORE_TYPE` | `sqlite` | Storage backend (`sqlite` or `memory`) |
 | `STORE_PATH` | `./data/prism-pipe.db` | SQLite database path |
 
+### Store Migration (v0.1.0+)
+
+**Default store type changed from `memory` to `sqlite`.**
+
+This ensures rate limits, tenant costs, and circuit breaker state survive restarts.
+
+- **To use the old in-memory behavior**, explicitly set `STORE_TYPE=memory` or `storeType: 'memory'` in your config
+- **To use the new SQLite backend** (recommended), no changes needed — it's now the default
+- **Existing in-memory state is not migrated** — the first start with SQLite creates a fresh database
+
 ## Docker
 
 ```bash
