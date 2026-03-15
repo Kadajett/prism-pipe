@@ -272,6 +272,35 @@ npm run test:run     # Tests
 npm run check        # Biome lint + format check
 ```
 
+## Prompt Guard Middleware
+
+PrismPipe includes a built-in prompt injection detection middleware (`prompt-guard`) that scans user messages for known injection patterns and takes a configurable action.
+
+### Actions
+
+| Action | Behaviour |
+|---|---|
+| `block` (default) | Throws a `PipelineError` (HTTP 400) when the threat score exceeds the threshold. |
+| `flag` | Sets `promptGuard.flagged` metadata and continues. |
+| `sanitize` | Strips **all** occurrences of matched patterns from message text, then continues. Uses global regex matching so repeated injection attempts within the same message are fully removed. |
+| `log` | Logs the detection at `warn` level and continues. |
+
+### Configuration
+
+```ts
+createPromptGuard({
+  action: 'sanitize',   // 'block' | 'flag' | 'sanitize' | 'log'
+  threshold: 0.5,       // score 0–1 to trigger action
+  excludeRoles: ['system', 'assistant'],
+  maxScanLength: 10_000,
+  patterns: [],          // additional PatternRule[] merged with built-ins
+});
+```
+
+### Global Sanitization
+
+When `action` is `'sanitize'`, the middleware removes **every** match of each pattern — not just the first. This is achieved via the internal `ensureGlobal()` helper that adds the `g` flag to any regex missing it, ensuring `String.replace` behaves like `replaceAll`. This applies to both plain `string` and `ContentBlock[]` message content.
+
 ## Architecture
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
