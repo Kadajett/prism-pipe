@@ -1,7 +1,10 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { existsSync, rmSync } from 'node:fs';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ProxyErrorEvent } from './core/types';
 import { PrismPipe } from './prism-pipe';
 import { ProxyInstance } from './proxy-instance';
+import { MemoryStore } from './store/memory';
+import { SQLiteStore } from './store/sqlite';
 
 describe('PrismPipe', () => {
   it('creates instance with shared store and transforms', () => {
@@ -9,6 +12,16 @@ describe('PrismPipe', () => {
     expect(prism.store).toBeDefined();
     expect(prism.transforms).toBeDefined();
     expect(prism.proxies).toEqual([]);
+  });
+
+  it('defaults to SQLiteStore when no storeType is provided', () => {
+    const prism = new PrismPipe();
+    expect(prism.store).toBeInstanceOf(SQLiteStore);
+  });
+
+  it('uses MemoryStore when storeType is explicitly memory', () => {
+    const prism = new PrismPipe({ storeType: 'memory' });
+    expect(prism.store).toBeInstanceOf(MemoryStore);
   });
 
   it('registers custom transforms', () => {
@@ -187,6 +200,50 @@ describe('PrismPipe', () => {
 
       expect(events).toHaveLength(1);
       expect(events[0].error.message).toBe('test');
+    });
+  });
+
+  describe('SQLite default persistence', () => {
+    const testDbPath = './data/.test-default-persistence.db';
+
+    afterEach(() => {
+      try {
+        rmSync(testDbPath);
+      } catch {}
+      try {
+        rmSync(`${testDbPath}-wal`);
+      } catch {}
+      try {
+        rmSync(`${testDbPath}-shm`);
+      } catch {}
+    });
+
+    it('creates SQLite DB file with default config', async () => {
+      const prism = new PrismPipe({ storePath: testDbPath });
+      await prism.initStore();
+      expect(existsSync(testDbPath)).toBe(true);
+      await prism.shutdown();
+    });
+
+    it('persists rate limit state across restarts', async () => {
+      // Write state
+      const prism1 = new PrismPipe({ storePath: testDbPath });
+      await prism1.initStore();
+      await prism1.store.rateLimitSet('persist-test', {
+        key: 'persist-test',
+        tokens: 5,
+        lastRefill: Date.now(),
+        resetAt: Date.now() + 60_000,
+      });
+      await prism1.shutdown();
+
+      // Reopen and verify
+      const prism2 = new PrismPipe({ storePath: testDbPath });
+      await prism2.initStore();
+      const entry = await prism2.store.rateLimitGet('persist-test');
+      expect(entry).not.toBeNull();
+      expect(entry?.tokens).toBe(5);
+      await prism2.shutdown();
     });
   });
 });

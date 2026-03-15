@@ -44,7 +44,9 @@ If OpenAI is down, requests automatically fall back to Anthropic.
 ```typescript
 import { PrismPipe } from 'prism-pipe';
 
-const prism = new PrismPipe({ logLevel: 'info', storeType: 'sqlite' });
+// SQLite store is the default — state persists across restarts.
+// Set storeType: 'memory' for ephemeral in-memory storage (testing/edge).
+const prism = new PrismPipe({ logLevel: 'info' });
 
 prism.createProxy({
   id: 'my-proxy',
@@ -164,7 +166,7 @@ const proxy = createPrismPipe({ port: 3000, providers: { ... } });
 
 // ✅ New
 import { PrismPipe } from 'prism-pipe';
-const prism = new PrismPipe({ logLevel: 'info', storeType: 'sqlite' });
+const prism = new PrismPipe({ logLevel: 'info' });  // SQLite is the default
 const proxy = prism.createProxy({ id: 'main', port: 3000, providers: { ... }, routes: { ... } });
 await prism.start();
 ```
@@ -175,6 +177,18 @@ Key differences:
 - `createProxy()` returns a `ProxyInstance` — call `prism.start()` to start all
 - Global error handling via `prism.onError()`
 - Usage/cost queries via `prism.getUsageByModel()`, `prism.getCostByProxy()`, etc.
+
+### Migration note: SQLite is now the default store
+
+As of v0.x, the default store changed from `memory` to `sqlite`. Rate limit state, request logs, and usage data now persist across restarts automatically.
+
+If you relied on ephemeral storage behavior, explicitly opt in to memory mode:
+
+```typescript
+new PrismPipe({ storeType: 'memory' });
+```
+
+Or via environment variable: `STORE_TYPE=memory`.
 
 ## YAML Configuration
 

@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { SQLiteStore } from './sqlite';
-import { rmSync } from 'fs';
-import { join } from 'path';
+import { rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { StoreConfigSchema } from '../config/schema';
 import type { RateLimitEntry, RequestLogEntry } from './interface';
+import { SQLiteStore } from './sqlite';
 
 describe('SQLiteStore', () => {
   let store: SQLiteStore;
@@ -25,6 +26,13 @@ describe('SQLiteStore', () => {
     try {
       rmSync(join(process.cwd(), '.test-db'), { recursive: true });
     } catch {}
+  });
+
+  describe('Default store type', () => {
+    it('StoreConfigSchema defaults to sqlite', () => {
+      const config = StoreConfigSchema.parse({});
+      expect(config.type).toBe('sqlite');
+    });
   });
 
   describe('Initialization', () => {

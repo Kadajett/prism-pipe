@@ -77,9 +77,9 @@ export class PrismPipe {
 
     // Store
     this.store =
-      config.storeType === 'sqlite'
-        ? new SQLiteStore(config.storePath ?? './data/prism-pipe.db')
-        : new MemoryStore();
+      config.storeType === 'memory'
+        ? new MemoryStore()
+        : new SQLiteStore(config.storePath ?? './data/prism-pipe.db');
 
     // Transform registry with built-in transformers
     this.transforms = new TransformRegistry();
