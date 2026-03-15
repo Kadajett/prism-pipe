@@ -329,6 +329,11 @@ function registerConfigRoute(
         ctx.request.systemPrompt = routeConfig.systemPrompt;
       }
 
+      // Inject prompt-guard config into context for the named middleware
+      if (routeConfig.promptGuard) {
+        ctx.metadata.set('promptGuard.config', routeConfig.promptGuard);
+      }
+
       // Run pre-flight pipeline
       await pipeline.execute(ctx);
 
