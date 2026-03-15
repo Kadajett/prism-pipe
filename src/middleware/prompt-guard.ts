@@ -87,31 +87,31 @@ export const BUILTIN_PATTERNS: PatternRule[] = [
   // ── Role override ──
   {
     name: 'ignore-previous',
-    pattern: /ignore\s+(all\s+)?previous\s+instructions/i,
+    pattern: /ignore\s+(all\s+)?previous\s+instructions/gi,
     weight: 0.85,
     category: 'role_override',
   },
   {
     name: 'you-are-now',
-    pattern: /you\s+are\s+now\s+(?:a|an|the)\s+/i,
+    pattern: /you\s+are\s+now\s+(?:a|an|the)\s+/gi,
     weight: 0.6,
     category: 'role_override',
   },
   {
     name: 'new-system-prompt',
-    pattern: /new\s+system\s+prompt/i,
+    pattern: /new\s+system\s+prompt/gi,
     weight: 0.8,
     category: 'role_override',
   },
   {
     name: 'forget-instructions',
-    pattern: /forget\s+(all\s+)?(your\s+)?instructions/i,
+    pattern: /forget\s+(all\s+)?(your\s+)?instructions/gi,
     weight: 0.85,
     category: 'role_override',
   },
   {
     name: 'override-role',
-    pattern: /override\s+(your\s+)?(role|persona|character)/i,
+    pattern: /override\s+(your\s+)?(role|persona|character)/gi,
     weight: 0.7,
     category: 'role_override',
   },
@@ -119,37 +119,42 @@ export const BUILTIN_PATTERNS: PatternRule[] = [
   // ── Delimiter injection ──
   {
     name: 'fake-system-tag',
-    pattern: /<\/?system>/i,
+    pattern: /<\/?system>/gi,
     weight: 0.9,
     category: 'delimiter_injection',
   },
   {
     name: 'hash-system',
-    pattern: /#{3,}\s*SYSTEM\s*#{3,}/i,
+    pattern: /#{3,}\s*SYSTEM\s*#{3,}/gi,
     weight: 0.85,
     category: 'delimiter_injection',
   },
-  { name: 'fence-system', pattern: /```system\b/i, weight: 0.8, category: 'delimiter_injection' },
-  { name: 'bracket-system', pattern: /\[SYSTEM\]/i, weight: 0.75, category: 'delimiter_injection' },
+  { name: 'fence-system', pattern: /```system\b/gi, weight: 0.8, category: 'delimiter_injection' },
+  {
+    name: 'bracket-system',
+    pattern: /\[SYSTEM\]/gi,
+    weight: 0.75,
+    category: 'delimiter_injection',
+  },
 
   // ── Encoding evasion ──
   {
     name: 'base64-instruction',
-    pattern: /(?:aWdub3Jl|Zm9yZ2V0|c3lzdGVt|SW5zdHJ1Y3Rpb24)/i,
+    pattern: /(?:aWdub3Jl|Zm9yZ2V0|c3lzdGVt|SW5zdHJ1Y3Rpb24)/gi,
     weight: 0.7,
     category: 'encoding_evasion',
   },
   {
     name: 'unicode-homoglyph',
     // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional — detecting encoding evasion via control chars
-    pattern: /[\u0400-\u04FF][\u0000-\u007F]{2,}[\u0400-\u04FF]/i,
+    pattern: /[\u0400-\u04FF][\u0000-\u007F]{2,}[\u0400-\u04FF]/gi,
     weight: 0.5,
     category: 'encoding_evasion',
   },
   {
     name: 'zero-width-chars',
     // biome-ignore lint/suspicious/noMisleadingCharacterClass: intentional — detecting zero-width char sequences used for evasion
-    pattern: /[\u200B\u200C\u200D\uFEFF]{2,}/i,
+    pattern: /[\u200B\u200C\u200D\uFEFF]{2,}/gi,
     weight: 0.6,
     category: 'encoding_evasion',
   },
@@ -157,25 +162,25 @@ export const BUILTIN_PATTERNS: PatternRule[] = [
   // ── Meta-instructions ──
   {
     name: 'do-not-follow',
-    pattern: /do\s+not\s+follow\s+(your\s+)?guidelines/i,
+    pattern: /do\s+not\s+follow\s+(your\s+)?guidelines/gi,
     weight: 0.8,
     category: 'meta_instruction',
   },
   {
     name: 'output-system-prompt',
-    pattern: /output\s+(your\s+)?system\s+prompt/i,
+    pattern: /output\s+(your\s+)?system\s+prompt/gi,
     weight: 0.85,
     category: 'meta_instruction',
   },
   {
     name: 'disregard-above',
-    pattern: /disregard\s+(all\s+)?(the\s+)?above/i,
+    pattern: /disregard\s+(all\s+)?(the\s+)?above/gi,
     weight: 0.85,
     category: 'meta_instruction',
   },
   {
     name: 'ignore-rules',
-    pattern: /ignore\s+(all\s+)?(your\s+)?(rules|constraints|guidelines)/i,
+    pattern: /ignore\s+(all\s+)?(your\s+)?(rules|constraints|guidelines)/gi,
     weight: 0.8,
     category: 'meta_instruction',
   },
@@ -183,25 +188,25 @@ export const BUILTIN_PATTERNS: PatternRule[] = [
   // ── Exfiltration ──
   {
     name: 'repeat-above',
-    pattern: /repeat\s+(everything|all)\s+(above|before)/i,
+    pattern: /repeat\s+(everything|all)\s+(above|before)/gi,
     weight: 0.75,
     category: 'exfiltration',
   },
   {
     name: 'show-instructions',
-    pattern: /show\s+me\s+(your\s+)?instructions/i,
+    pattern: /show\s+me\s+(your\s+)?instructions/gi,
     weight: 0.7,
     category: 'exfiltration',
   },
   {
     name: 'what-is-system-prompt',
-    pattern: /what\s+is\s+(your\s+)?system\s+prompt/i,
+    pattern: /what\s+is\s+(your\s+)?system\s+prompt/gi,
     weight: 0.75,
     category: 'exfiltration',
   },
   {
     name: 'print-initial-prompt',
-    pattern: /print\s+(your\s+)?(initial|original)\s+prompt/i,
+    pattern: /print\s+(your\s+)?(initial|original)\s+prompt/gi,
     weight: 0.7,
     category: 'exfiltration',
   },
@@ -237,6 +242,8 @@ export function extractText(msg: CanonicalMessage, maxLen: number): string {
 export function scanText(text: string, patterns: PatternRule[]): PatternMatch[] {
   const matches: PatternMatch[] = [];
   for (const rule of patterns) {
+    // Reset lastIndex to prevent stale state from global regexes
+    rule.pattern.lastIndex = 0;
     if (rule.pattern.test(text)) {
       matches.push({ rule: rule.name, category: rule.category, weight: rule.weight });
     }
