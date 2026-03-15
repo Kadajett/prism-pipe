@@ -60,7 +60,7 @@ export class ProxyInstance {
     this.parent = parent;
     this.definition = definition;
     this.stats = new StatsTracker();
-    this.circuitBreakers = new CircuitBreakerRegistry();
+    this.circuitBreakers = new CircuitBreakerRegistry({}, parent.store);
     this.plugins = new PluginRegistry();
     this.startedAt = Date.now();
 
@@ -108,6 +108,7 @@ export class ProxyInstance {
     }
 
     await this.parent.initStore();
+    await this.circuitBreakers.hydrateAll();
 
     const portConfig = this.buildPortConfig();
 

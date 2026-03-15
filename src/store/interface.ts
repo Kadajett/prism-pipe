@@ -131,6 +131,17 @@ export interface CostRecord {
 }
 
 /**
+ * Circuit breaker state record for persistence.
+ */
+export interface CircuitBreakerStateRecord {
+  provider: string;
+  state: 'closed' | 'open' | 'half-open';
+  consecutiveFailures: number;
+  openedAt?: number; // Unix timestamp in ms
+  updatedAt: number; // Unix timestamp in ms
+}
+
+/**
  * Store interface for rate limit and request logging
  */
 export interface Store {
@@ -155,4 +166,8 @@ export interface Store {
   recordCost(record: CostRecord): Promise<void>;
   /** Query cost records */
   queryCosts(filter: { tenantId?: string; month?: string }): Promise<CostRecord[]>;
+  /** Get circuit breaker state for a provider */
+  circuitBreakerGet(provider: string): Promise<CircuitBreakerStateRecord | null>;
+  /** Set circuit breaker state for a provider */
+  circuitBreakerSet(record: CircuitBreakerStateRecord): Promise<void>;
 }

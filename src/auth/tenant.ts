@@ -5,6 +5,7 @@
 
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
+import type { Store } from '../store/interface';
 
 // ─── Types ───
 
@@ -62,10 +63,33 @@ export interface TenantContext {
 export class TenantCostTracker {
   /** tenantId → { month → costUsd } */
   private costs = new Map<string, Map<string, number>>();
+  private readonly store?: Store;
 
   private monthKey(): string {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  constructor(store?: Store) {
+    this.store = store;
+  }
+
+  /**
+   * Hydrate in-memory costs from the store.
+   * Called during construction or when re-syncing with persistence layer.
+   */
+  async hydrate(): Promise<void> {
+    if (!this.store) return;
+    const records = await this.store.queryCosts({});
+    for (const record of records) {
+      let tenantCosts = this.costs.get(record.tenantId);
+      if (!tenantCosts) {
+        tenantCosts = new Map();
+        this.costs.set(record.tenantId, tenantCosts);
+      }
+      const current = tenantCosts.get(record.month) ?? 0;
+      tenantCosts.set(record.month, current + record.costUsd);
+    }
   }
 
   record(tenantId: string, costUsd: number): void {
@@ -76,6 +100,15 @@ export class TenantCostTracker {
       this.costs.set(tenantId, tenantCosts);
     }
     tenantCosts.set(month, (tenantCosts.get(month) ?? 0) + costUsd);
+
+    // Write-through to store
+    if (this.store) {
+      void this.store.recordCost({
+        tenantId,
+        month,
+        costUsd,
+      });
+    }
   }
 
   getCurrentMonthCost(tenantId: string): number {
@@ -110,14 +143,28 @@ export class TenantManager {
   private keyIndex = new Map<string, string>();
   private jwtConfig?: JwtConfig;
   private oauth2Config?: OAuth2Config;
-  readonly costs = new TenantCostTracker();
+  readonly costs: TenantCostTracker;
 
-  constructor(opts?: { tenants?: TenantConfig[]; jwt?: JwtConfig; oauth2?: OAuth2Config }) {
+  constructor(opts?: {
+    tenants?: TenantConfig[];
+    jwt?: JwtConfig;
+    oauth2?: OAuth2Config;
+    store?: Store;
+  }) {
+    this.costs = new TenantCostTracker(opts?.store);
     if (opts?.tenants) {
       for (const t of opts.tenants) this.addTenant(t);
     }
     this.jwtConfig = opts?.jwt;
     this.oauth2Config = opts?.oauth2;
+  }
+
+  /**
+   * Hydrate costs from store after initialization.
+   * Call this after creating the TenantManager if you need costs restored from persistence.
+   */
+  async hydrateCosts(): Promise<void> {
+    await this.costs.hydrate();
   }
 
   addTenant(tenant: TenantConfig): void {
@@ -188,7 +235,7 @@ export class TenantManager {
       return {
         tenantId: String(decoded.sub ?? decoded.client_id ?? 'jwt-user'),
         tenantName: String(decoded.name ?? decoded.sub ?? 'JWT User'),
-        admin: decoded.admin === true || (decoded.role === 'admin'),
+        admin: decoded.admin === true || decoded.role === 'admin',
         allowedProviders: decoded.providers as string[] | undefined,
         rateLimitRpm: decoded.rate_limit as number | undefined,
         budgetUsd: decoded.budget as number | undefined,

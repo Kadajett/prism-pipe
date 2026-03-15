@@ -132,7 +132,9 @@ export async function startProxyListener(opts: {
       tenants: portConfig.tenants,
       jwt: portConfig.jwt,
       oauth2: portConfig.oauth2,
+      store,
     });
+    await tenantManager.hydrateCosts();
   }
 
   const rpm = portConfig.rateLimitRpm ?? 60;
