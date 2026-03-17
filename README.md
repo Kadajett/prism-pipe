@@ -153,61 +153,6 @@ await prism.reload();     // Reload all proxies
 await prism.shutdown();   // Stop everything + close store
 ```
 
-### Migration from `createPrismPipe()` factory
-
-The old factory function `createPrismPipe()` has been replaced by the `PrismPipe` class:
-
-```typescript
-// ❌ Old (deprecated)
-import { createPrismPipe } from 'prism-pipe';
-const proxy = createPrismPipe({ port: 3000, providers: { ... } });
-
-// ✅ New
-import { PrismPipe } from 'prism-pipe';
-const prism = new PrismPipe({ logLevel: 'info', storeType: 'sqlite' });
-const proxy = prism.createProxy({ id: 'main', port: 3000, providers: { ... }, routes: { ... } });
-await prism.start();
-```
-
-Key differences:
-- `PrismPipe` is a class, not a factory function
-- Shared store and transform registry across all proxies
-- `createProxy()` returns a `ProxyInstance` — call `prism.start()` to start all
-- Global error handling via `prism.onError()`
-- Usage/cost queries via `prism.getUsageByModel()`, `prism.getCostByProxy()`, etc.
-
-## YAML Configuration
-
-For simple setups, YAML config still works:
-
-```bash
-# Use default prism-pipe.yaml
-npx prism-pipe
-
-# Or specify a config file
-PRISM_CONFIG=configs/my-config.yaml npx prism-pipe
-```
-
-```yaml
-port: 3000
-logLevel: info
-requestTimeout: 120000
-
-providers:
-  openai:
-    baseUrl: https://api.openai.com
-    apiKey: ${OPENAI_API_KEY}
-  anthropic:
-    baseUrl: https://api.anthropic.com
-    apiKey: ${ANTHROPIC_API_KEY}
-
-routes:
-  - path: /v1/chat/completions
-    providers: [openai, anthropic]
-```
-
-See [`prism-pipe.example.yaml`](./prism-pipe.example.yaml) for the full reference.
-
 ## Running All Proxies
 
 ```bash
