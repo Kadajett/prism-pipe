@@ -21,6 +21,26 @@ OPENAI_API_KEY=sk-... ANTHROPIC_API_KEY=sk-ant-... npx prism-pipe
 
 If OpenAI is down, requests automatically fall back to Anthropic.
 
+### With Codex CLI Integration ($0/token with Max plan)
+
+```bash
+# Install Codex CLI and authenticate (OAuth)
+npm install -g @anthropic-ai/claude-cli
+codex login
+
+# Start Prism Pipe with Codex backend
+npm install
+node start-codex.mjs
+```
+
+The Codex integration includes:
+- **PTY streaming** — Real-time terminal output from `codex exec`
+- **Compose chains** — Two parallel analysts + reviewer synthesis
+- **Zero token cost** — Uses your Codex Max plan OAuth (free tokens)
+- **SSE streaming** — Line-by-line thinking steps delivered via Server-Sent Events
+
+See [codex-bridge.mjs](./codex-bridge.mjs) for the basic bridge implementation, and [start-codex.mjs](./start-codex.mjs) for the full streaming + compose chain version.
+
 ## Features
 
 - **Zero config** — `OPENAI_API_KEY=sk-... npx prism-pipe` just works
