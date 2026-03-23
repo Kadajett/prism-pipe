@@ -2,6 +2,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import Database from 'better-sqlite3';
 import type {
+  CircuitBreakerStateRecord,
   CostRecord,
   LogFilter,
   LogQuery,
@@ -99,6 +100,14 @@ export class SQLiteStore implements Store {
       CREATE INDEX IF NOT EXISTS idx_usage_log_timestamp ON usage_log(timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_usage_log_model ON usage_log(model);
       CREATE INDEX IF NOT EXISTS idx_usage_log_proxy ON usage_log(proxy_id);
+
+      CREATE TABLE IF NOT EXISTS circuit_breaker_state (
+        provider TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        consecutive_failures INTEGER NOT NULL DEFAULT 0,
+        opened_at INTEGER,
+        updated_at INTEGER NOT NULL
+      );
     `);
 
     // Add new columns if they don't exist (safe migration for existing DBs)
@@ -426,5 +435,49 @@ export class SQLiteStore implements Store {
     if (!this.db) throw new Error('Database not initialized');
     const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
     this.db.prepare('DELETE FROM request_log WHERE timestamp < ?').run(cutoff);
+  }
+
+  async circuitBreakerGet(provider: string): Promise<CircuitBreakerStateRecord | null> {
+    if (!this.db) throw new Error('Database not initialized');
+    const row = this.db
+      .prepare(
+        'SELECT provider, state, consecutive_failures, opened_at, updated_at FROM circuit_breaker_state WHERE provider = ?'
+      )
+      .get(provider) as
+      | {
+          provider: string;
+          state: string;
+          consecutive_failures: number;
+          opened_at: number | null;
+          updated_at: number;
+        }
+      | undefined;
+    if (!row) return null;
+    return {
+      provider: row.provider,
+      state: row.state as 'closed' | 'open' | 'half-open',
+      consecutiveFailures: row.consecutive_failures,
+      openedAt: row.opened_at ?? undefined,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  async circuitBreakerSet(record: CircuitBreakerStateRecord): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    this.db
+      .prepare(`
+      INSERT INTO circuit_breaker_state (provider, state, consecutive_failures, opened_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(provider) DO UPDATE SET
+        state = excluded.state, consecutive_failures = excluded.consecutive_failures,
+        opened_at = excluded.opened_at, updated_at = excluded.updated_at
+    `)
+      .run(
+        record.provider,
+        record.state,
+        record.consecutiveFailures,
+        record.openedAt ?? null,
+        record.updatedAt
+      );
   }
 }

@@ -1,4 +1,5 @@
 import type { MetricsEmitter } from '../core/types';
+import type { Store } from '../store/interface';
 
 export type CircuitState = 'closed' | 'open' | 'half-open';
 
@@ -11,6 +12,8 @@ export interface CircuitBreakerOptions {
   halfOpenRequests?: number;
   /** Optional metrics emitter */
   metrics?: MetricsEmitter;
+  /** Optional store for state persistence */
+  store?: Store;
 }
 
 /**
@@ -31,6 +34,7 @@ export class CircuitBreaker {
   private readonly resetTimeoutMs: number;
   private readonly halfOpenRequests: number;
   private readonly metrics?: MetricsEmitter;
+  private readonly store?: Store;
 
   constructor(provider: string, opts: CircuitBreakerOptions = {}) {
     this.provider = provider;
@@ -38,6 +42,21 @@ export class CircuitBreaker {
     this.resetTimeoutMs = opts.resetTimeoutMs ?? 30_000;
     this.halfOpenRequests = opts.halfOpenRequests ?? 1;
     this.metrics = opts.metrics;
+    this.store = opts.store;
+  }
+
+  /**
+   * Hydrate circuit breaker state from store.
+   * Called during construction by CircuitBreakerRegistry.
+   */
+  async hydrate(): Promise<void> {
+    if (!this.store) return;
+    const record = await this.store.circuitBreakerGet(this.provider);
+    if (!record) return;
+
+    this.state = record.state;
+    this.consecutiveFailures = record.consecutiveFailures;
+    this.openedAt = record.openedAt ?? 0;
   }
 
   /** Current breaker state */
@@ -123,6 +142,17 @@ export class CircuitBreaker {
       this.halfOpenSuccesses = 0;
       this.halfOpenAttempts = 0;
     }
+
+    // Persist state to store
+    if (this.store) {
+      void this.store.circuitBreakerSet({
+        provider: this.provider,
+        state: newState,
+        consecutiveFailures: this.consecutiveFailures,
+        openedAt: this.openedAt,
+        updatedAt: Date.now(),
+      });
+    }
   }
 }
 
@@ -132,18 +162,34 @@ export class CircuitBreaker {
 export class CircuitBreakerRegistry {
   private readonly breakers = new Map<string, CircuitBreaker>();
   private readonly defaultOpts: CircuitBreakerOptions;
+  private readonly store?: Store;
 
-  constructor(opts: CircuitBreakerOptions = {}) {
+  constructor(opts: CircuitBreakerOptions = {}, store?: Store) {
     this.defaultOpts = opts;
+    this.store = store;
   }
 
   get(provider: string): CircuitBreaker {
     let cb = this.breakers.get(provider);
     if (!cb) {
-      cb = new CircuitBreaker(provider, this.defaultOpts);
+      cb = new CircuitBreaker(provider, { ...this.defaultOpts, store: this.store });
       this.breakers.set(provider, cb);
     }
     return cb;
+  }
+
+  /**
+   * Hydrate all circuit breaker states from store.
+   * This is called by ProxyInstance after construction.
+   */
+  async hydrateAll(): Promise<void> {
+    if (!this.store) return;
+    // Hydrate all existing breakers
+    const promises = [];
+    for (const cb of this.breakers.values()) {
+      promises.push(cb.hydrate());
+    }
+    await Promise.all(promises);
   }
 
   /** Check if a provider is available (not tripped) */

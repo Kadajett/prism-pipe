@@ -46,7 +46,7 @@ export const LoggingConfigSchema = z.object({
 export type LoggingConfig = z.infer<typeof LoggingConfigSchema>;
 
 export const StoreConfigSchema = z.object({
-  type: z.enum(['sqlite', 'memory']).default('memory'),
+  type: z.enum(['sqlite', 'memory']).default('sqlite'),
   path: z.string().optional(),
 });
 export type StoreConfig = z.infer<typeof StoreConfigSchema>;
@@ -65,7 +65,9 @@ export const EgressProxySchema = z.object({
 export const EgressConfigSchema = z.object({
   ips: z.array(EgressIpSchema).optional(),
   proxies: z.array(EgressProxySchema).optional(),
-  strategy: z.enum(['round-robin', 'random', 'least-recently-used', 'weighted-round-robin']).default('round-robin'),
+  strategy: z
+    .enum(['round-robin', 'random', 'least-recently-used', 'weighted-round-robin'])
+    .default('round-robin'),
 });
 export type EgressConfig = z.infer<typeof EgressConfigSchema>;
 
