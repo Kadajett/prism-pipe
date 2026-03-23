@@ -1,4 +1,5 @@
 import type {
+  CircuitBreakerStateRecord,
   CostRecord,
   LogFilter,
   LogQuery,
@@ -15,6 +16,7 @@ export class MemoryStore implements Store {
   private requestLogs: RequestLogEntry[] = [];
   private costRecords: CostRecord[] = [];
   private usageLogs: UsageLogEntry[] = [];
+  private circuitBreakerStates = new Map<string, CircuitBreakerStateRecord>();
 
   async init(): Promise<void> {}
   async close(): Promise<void> {
@@ -160,5 +162,13 @@ export class MemoryStore implements Store {
       if (filter.month && r.month !== filter.month) return false;
       return true;
     });
+  }
+
+  async circuitBreakerGet(provider: string): Promise<CircuitBreakerStateRecord | null> {
+    return this.circuitBreakerStates.get(provider) ?? null;
+  }
+
+  async circuitBreakerSet(provider: string, state: CircuitBreakerStateRecord): Promise<void> {
+    this.circuitBreakerStates.set(provider, state);
   }
 }

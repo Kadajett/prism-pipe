@@ -1,4 +1,5 @@
 import type { MetricsEmitter } from '../core/types';
+import type { Store } from '../store/interface';
 
 export type CircuitState = 'closed' | 'open' | 'half-open';
 
@@ -11,6 +12,8 @@ export interface CircuitBreakerOptions {
   halfOpenRequests?: number;
   /** Optional metrics emitter */
   metrics?: MetricsEmitter;
+  /** Optional store for persistence */
+  store?: Store;
 }
 
 /**
@@ -31,6 +34,7 @@ export class CircuitBreaker {
   private readonly resetTimeoutMs: number;
   private readonly halfOpenRequests: number;
   private readonly metrics?: MetricsEmitter;
+  private readonly store?: Store;
 
   constructor(provider: string, opts: CircuitBreakerOptions = {}) {
     this.provider = provider;
@@ -38,6 +42,7 @@ export class CircuitBreaker {
     this.resetTimeoutMs = opts.resetTimeoutMs ?? 30_000;
     this.halfOpenRequests = opts.halfOpenRequests ?? 1;
     this.metrics = opts.metrics;
+    this.store = opts.store;
   }
 
   /** Current breaker state */
@@ -100,6 +105,25 @@ export class CircuitBreaker {
     this.transitionTo('closed');
   }
 
+  /** Restore state from a persisted record (internal use only) */
+  restoreFromPersisted(state: { state: CircuitState; consecutiveFailures: number; openedAt?: number }): void {
+    this.state = state.state;
+    this.consecutiveFailures = state.consecutiveFailures;
+    this.openedAt = state.openedAt ?? 0;
+    // Reset other counters
+    if (state.state === 'open') {
+      this.halfOpenSuccesses = 0;
+      this.halfOpenAttempts = 0;
+    } else if (state.state === 'half-open') {
+      this.halfOpenSuccesses = 0;
+      this.halfOpenAttempts = 0;
+    } else if (state.state === 'closed') {
+      this.consecutiveFailures = 0;
+      this.halfOpenSuccesses = 0;
+      this.halfOpenAttempts = 0;
+    }
+  }
+
   private transitionTo(newState: CircuitState): void {
     const old = this.state;
     if (old === newState) return;
@@ -123,6 +147,18 @@ export class CircuitBreaker {
       this.halfOpenSuccesses = 0;
       this.halfOpenAttempts = 0;
     }
+
+    // Persist state to store (fire and forget)
+    if (this.store) {
+      this.store.circuitBreakerSet(this.provider, {
+        provider: this.provider,
+        state: this.state,
+        consecutiveFailures: this.consecutiveFailures,
+        openedAt: this.openedAt > 0 ? this.openedAt : undefined,
+      }).catch((err) => {
+        console.error(`Failed to persist circuit breaker state for ${this.provider}:`, err);
+      });
+    }
   }
 }
 
@@ -132,9 +168,31 @@ export class CircuitBreaker {
 export class CircuitBreakerRegistry {
   private readonly breakers = new Map<string, CircuitBreaker>();
   private readonly defaultOpts: CircuitBreakerOptions;
+  private readonly store?: Store;
+  private readonly hydrationCache = new Set<string>();
 
   constructor(opts: CircuitBreakerOptions = {}) {
     this.defaultOpts = opts;
+    this.store = opts.store;
+  }
+
+  /** Hydrate a specific circuit breaker from persistent store if available */
+  private async hydrateIfNeeded(provider: string, cb: CircuitBreaker): Promise<void> {
+    if (!this.store || this.hydrationCache.has(provider)) return;
+    this.hydrationCache.add(provider);
+
+    try {
+      const persisted = await this.store.circuitBreakerGet(provider);
+      if (persisted) {
+        cb.restoreFromPersisted({
+          state: persisted.state,
+          consecutiveFailures: persisted.consecutiveFailures,
+          openedAt: persisted.openedAt,
+        });
+      }
+    } catch (err) {
+      console.error(`Failed to hydrate circuit breaker for ${provider}:`, err);
+    }
   }
 
   get(provider: string): CircuitBreaker {
@@ -142,13 +200,21 @@ export class CircuitBreakerRegistry {
     if (!cb) {
       cb = new CircuitBreaker(provider, this.defaultOpts);
       this.breakers.set(provider, cb);
+      // Hydrate asynchronously (fire and forget)
+      this.hydrateIfNeeded(provider, cb).catch((err) => {
+        console.error(`Failed to hydrate circuit breaker for ${provider}:`, err);
+      });
     }
     return cb;
   }
 
-  /** Check if a provider is available (not tripped) */
+  /** Check if a provider is available (not tripped) - synchronous, uses cached breaker if available */
   isAvailable(provider: string): boolean {
-    return this.get(provider).allowRequest();
+    const cb = this.breakers.get(provider) ?? new CircuitBreaker(provider, this.defaultOpts);
+    if (!this.breakers.has(provider)) {
+      this.breakers.set(provider, cb);
+    }
+    return cb.allowRequest();
   }
 
   /** Get all breakers for inspection */

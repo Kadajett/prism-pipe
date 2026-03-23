@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { TenantManager, TenantCostTracker } from './tenant';
 import type { TenantConfig } from './tenant';
+import { MemoryStore } from '../store/memory';
 
 const TENANT_A: TenantConfig = {
   id: 'tenant-a',
@@ -21,9 +22,11 @@ const TENANT_ADMIN: TenantConfig = {
 
 describe('TenantManager', () => {
   let manager: TenantManager;
+  let store: MemoryStore;
 
   beforeEach(() => {
-    manager = new TenantManager({ tenants: [TENANT_A, TENANT_ADMIN] });
+    store = new MemoryStore();
+    manager = new TenantManager({ tenants: [TENANT_A, TENANT_ADMIN], store });
   });
 
   it('authenticates by API key', async () => {
@@ -82,9 +85,11 @@ describe('TenantManager', () => {
 
 describe('TenantCostTracker', () => {
   let tracker: TenantCostTracker;
+  let store: MemoryStore;
 
   beforeEach(() => {
-    tracker = new TenantCostTracker();
+    store = new MemoryStore();
+    tracker = new TenantCostTracker(store);
   });
 
   it('tracks costs per tenant', () => {
@@ -111,11 +116,37 @@ describe('TenantCostTracker', () => {
     expect(Object.keys(all)).toContain('t1');
     expect(Object.keys(all)).toContain('t2');
   });
+
+  it('persists costs to store', async () => {
+    tracker.record('t1', 25);
+    // Give the fire-and-forget operation time to complete
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const recorded = await store.queryCosts({ tenantId: 't1' });
+    expect(recorded.length).toBeGreaterThan(0);
+    const totalCost = recorded.reduce((sum, r) => sum + r.costUsd, 0);
+    expect(totalCost).toBe(25);
+  });
+
+  it('hydrates costs from store on initialization', async () => {
+    // Manually add costs to the store
+    await store.recordCost({ tenantId: 't1', month: '2024-01', costUsd: 10 });
+    await store.recordCost({ tenantId: 't1', month: '2024-01', costUsd: 15 });
+    await store.recordCost({ tenantId: 't2', month: '2024-01', costUsd: 20 });
+
+    // Create a new tracker and hydrate it
+    const newTracker = new TenantCostTracker(store);
+    await newTracker.hydrate();
+
+    expect(newTracker.getAllCosts()['t1']['2024-01']).toBe(25);
+    expect(newTracker.getAllCosts()['t2']['2024-01']).toBe(20);
+  });
 });
 
 describe('TenantManager budget enforcement', () => {
   it('detects over budget tenants', async () => {
-    const manager = new TenantManager({ tenants: [TENANT_A] });
+    const store = new MemoryStore();
+    const manager = new TenantManager({ tenants: [TENANT_A], store });
     manager.costs.record('tenant-a', 50);
 
     const ctx = await manager.authenticate('a'.repeat(32));
